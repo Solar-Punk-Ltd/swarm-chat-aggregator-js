@@ -1,0 +1,60 @@
+{
+  "name": "@solarpunkltd/swarm-chat-aggregator-js",
+  "version": "1.0.0",
+  "description": "Node.js service for aggregating Swarm chat messages (GSOC project)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "keywords": [
+    "swarm",
+    "js",
+    "chat",
+    "GSOC",
+    "aggregator"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Solar-Punk-Ltd/swarm-chat-aggregator-js"
+  },
+  "bugs": {
+    "url": "https://github.com/Solar-Punk-Ltd/swarm-chat-aggregator-js/issues"
+  },
+  "author": "levente.kiss@solarpunk.buzz",
+  "scripts": {
+    "prepare": "husky",
+    "dev": "vite-node src/index.ts --",
+    "dev:watch": "vite-node -w src/index.ts --",
+    "build": "vite build",
+    "lint": "eslint . --ext .ts --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "npm run lint -- --fix",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ethersphere/bee-js": "^9.0.3",
+    "dotenv": "^16.4.7",
+    "ethers": "^6.13.5"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.0",
+    "@commitlint/config-conventional": "^19.8.0",
+    "@types/node": "^22.7.5",
+    "@typescript-eslint/eslint-plugin": "^6.14.0",
+    "@typescript-eslint/parser": "^6.14.0",
+    "eslint": "^8.55.0",
+    "eslint-config-prettier": "^8.10.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-prettier": "^4.2.1",
+    "eslint-plugin-simple-import-sort": "^10.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.0",
+    "prettier": "^2.8.8",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.8",
+    "vite-node": "^3.0.9",
+    "vite-plugin-dts": "^4.2.4",
+    "vite-plugin-node-polyfills": "^0.19.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ]
+}
