@@ -23,6 +23,10 @@ export class SwarmAggregator {
   private errorHandler = new ErrorHandler();
   private queue = new Queue();
 
+  private messageCache = new Map<string, null>();
+  private readonly maxCacheSize = 50_000;
+  private readonly minCacheSize = 1_000;
+
   constructor() {
     this.chainEmitter = new ChainEmitter();
     this.gsocBee = new Bee(GSOC_BEE_URL);
@@ -67,6 +71,12 @@ export class SwarmAggregator {
 
   // TODO: validation
   private async gsocCallback(message: Bytes) {
+    if (!this.shouldProcessMessage(message)) {
+      this.logger.debug('Duplicate message dropped.');
+      return;
+    }
+
+    this.logger.info(`gsocCallback message: ${message.toUtf8()}`);
     const topic = Topic.fromString(CHAT_TOPIC);
     const signer = new PrivateKey(CHAT_KEY);
 
@@ -81,5 +91,31 @@ export class SwarmAggregator {
 
     this.chainEmitter.emitEventWithRetry(`${CHAT_TOPIC}_${this.index.toString()}`);
     this.index = this.index.next();
+  }
+
+  private shouldProcessMessage(message: Bytes): boolean {
+    const key = message.toHex();
+
+    if (this.messageCache.has(key)) {
+      return false;
+    }
+
+    this.messageCache.set(key, null);
+
+    if (this.messageCache.size > this.maxCacheSize) {
+      const excess = this.messageCache.size - this.minCacheSize;
+      const keys = this.messageCache.keys();
+
+      for (let i = 0; i < excess; i++) {
+        const oldestKey = keys.next().value;
+        if (oldestKey !== undefined) {
+          this.messageCache.delete(oldestKey);
+        }
+      }
+
+      this.logger.info(`Message cache pruned. Kept last ${this.minCacheSize} entries.`);
+    }
+
+    return true;
   }
 }
