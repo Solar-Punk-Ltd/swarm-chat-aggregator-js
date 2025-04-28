@@ -15,8 +15,8 @@ async function main() {
   logger.info('[SwarmAggregator] Starting');
 
   try {
-    await aggregator.init();
     gsocSubscription = aggregator.subscribeToGsoc();
+    aggregator.startTopicCleaner();
     logger.info('[SwarmAggregator] Started');
   } catch (error) {
     errorHandler.handleError(error, 'main');
