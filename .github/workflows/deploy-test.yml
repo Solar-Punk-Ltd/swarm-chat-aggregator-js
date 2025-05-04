@@ -1,0 +1,80 @@
+name: Build and Deploy Test ENV to VPS (PM2)
+
+on:
+  push:
+    branches:
+      - test
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build project
+        run: pnpm build
+
+      - name: Generate .env file
+        run: |
+          echo "GSOC_BEE_URL=${{ secrets.GSOC_BEE_URL }}" >> .env
+          echo "GSOC_RESOURCE_ID=${{ secrets.GSOC_RESOURCE_ID }}" >> .env
+          echo "GSOC_TOPIC=${{ secrets.GSOC_TOPIC }}" >> .env
+          echo "CHAT_BEE_URL=${{ secrets.CHAT_BEE_URL }}" >> .env
+          echo "CHAT_KEY=${{ secrets.CHAT_KEY }}" >> .env
+          echo "CHAT_STAMP=${{ secrets.CHAT_STAMP }}" >> .env
+          echo "CHAIN_TYPE=${{ secrets.CHAIN_TYPE }}" >> .env
+          echo "RPC_URL=${{ secrets.RPC_URL }}" >> .env
+          echo "CONTRACT_ADDRESS=${{ secrets.CONTRACT_ADDRESS }}" >> .env
+          echo "PRIVATE_KEY=${{ secrets.PRIVATE_KEY }}" >> .env
+        shell: bash
+
+      - name: Stop and clean old project on VPS
+        uses: appleboy/ssh-action@v0.1.6
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            export APP_HOME=${{ secrets.APP_HOME }}
+            export PATH="$APP_HOME/.nvm/versions/node/v22.9.0/bin:$PATH"
+            pm2 delete ingestion || true
+            rm -rf ~/swarm-chat-aggregator
+
+      - name: Upload fresh project files
+        uses: appleboy/scp-action@v0.1.5
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: 'dist,node_modules,.env,ecosystem.config.js'
+          target: '~/swarm-chat-aggregator'
+
+      - name: Start app with PM2
+        uses: appleboy/ssh-action@v0.1.6
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            export APP_HOME=${{ secrets.APP_HOME }}
+            export PATH="$APP_HOME/.nvm/versions/node/v22.9.0/bin:$PATH"
+            cd ~/swarm-chat-aggregator
+            pm2 start ecosystem.config.js
