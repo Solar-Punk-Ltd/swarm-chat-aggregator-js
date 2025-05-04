@@ -19,7 +19,7 @@
   },
   "author": "levente.kiss@solarpunk.buzz",
   "scripts": {
-    "prepare": "npx husky init",
+    "prepare": "husky",
     "dev": "ts-node -r dotenv/config src/index.ts",
     "build": "tsc",
     "lint": "eslint . --ext .ts --report-unused-disable-directives --max-warnings 0",
