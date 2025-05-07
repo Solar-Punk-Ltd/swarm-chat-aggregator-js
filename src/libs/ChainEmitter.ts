@@ -46,7 +46,7 @@ export class ChainEmitter {
       ? new ethers.WebSocketProvider(RPC_URL)
       : new ethers.JsonRpcProvider(RPC_URL);
 
-    const privateKeys = JSON.parse(EVM_PRIVATE_KEYS);
+    const privateKeys = EVM_PRIVATE_KEYS.split(',');
     this.evmSigners = privateKeys.map((key: string) => new ethers.Wallet(key, this.evmProvider));
     this.evmContract = SwarmEventEmitter__factory.connect(CONTRACT_ADDRESS, this.evmProvider);
   }
