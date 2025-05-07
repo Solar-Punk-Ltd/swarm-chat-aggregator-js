@@ -1,15 +1,8 @@
 import { AnchorProvider, Program, Provider, Wallet } from '@coral-xyz/anchor';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { ethers, JsonRpcProvider, WebSocketProvider } from 'ethers';
-import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const jsonUrl = pathToFileURL(path.join(__dirname, '../../IDL/SwarmEventEmitter.json')).href;
-
-const { default: svmIdl } = await import(jsonUrl, {
-  assert: { type: 'json' },
-});
+import svmIdl from '../../IDL/SwarmEventEmitter.json' with { type: "json" };
 import { SwarmEventEmitter, SwarmEventEmitter__factory } from '../types/index.js';
 
 import { ErrorHandler } from './error.js';
