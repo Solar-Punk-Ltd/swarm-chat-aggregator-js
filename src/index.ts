@@ -2,9 +2,9 @@ import { GsocSubscription } from '@ethersphere/bee-js';
 
 import 'dotenv/config';
 
-import { ErrorHandler } from './libs/error';
-import { Logger } from './libs/logger';
-import { SwarmAggregator } from './libs/SwarmAggregator';
+import { ErrorHandler } from './libs/error.js';
+import { Logger } from './libs/logger.js';
+import { SwarmAggregator } from './libs/SwarmAggregator.js';
 
 async function main() {
   const aggregator = new SwarmAggregator();

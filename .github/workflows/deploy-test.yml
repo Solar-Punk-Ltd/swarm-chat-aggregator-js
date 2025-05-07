@@ -43,7 +43,8 @@ jobs:
           echo "CHAIN_TYPE=${{ secrets.CHAIN_TYPE }}" >> .env
           echo "RPC_URL=${{ secrets.RPC_URL }}" >> .env
           echo "CONTRACT_ADDRESS=${{ secrets.CONTRACT_ADDRESS }}" >> .env
-          echo "PRIVATE_KEY=${{ secrets.PRIVATE_KEY }}" >> .env
+          echo "EVM_PRIVATE_KEYS=${{ secrets.EVM_PRIVATE_KEYS }}" >> .env
+          echo "SVM_PRIVATE_KEY=${{ secrets.SVM_PRIVATE_KEY }}" >> .env
         shell: bash
 
       - name: Stop and clean old project on VPS
@@ -55,7 +56,8 @@ jobs:
           script: |
             export APP_HOME=${{ secrets.APP_HOME }}
             export PATH="$APP_HOME/.nvm/versions/node/v22.9.0/bin:$PATH"
-            pm2 delete ingestion || true
+            cd ~/swarm-chat-aggregator
+            pm2 delete ecosystem.config.js || true
             rm -rf ~/swarm-chat-aggregator
 
       - name: Upload fresh project files

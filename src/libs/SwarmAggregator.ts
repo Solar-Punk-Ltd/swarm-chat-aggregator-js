@@ -1,9 +1,9 @@
 import { Bee, Bytes, FeedIndex, Identifier, PrivateKey, Topic } from '@ethersphere/bee-js';
+import PQueue from 'p-queue';
 
-import { ChainEmitter } from './ChainEmitter';
-import { ErrorHandler } from './error';
-import { Logger } from './logger';
-import { Queue } from './queue';
+import { ChainEmitter } from './ChainEmitter.js';
+import { ErrorHandler } from './error.js';
+import { Logger } from './logger.js';
 
 const GSOC_BEE_URL = process.env.GSOC_BEE_URL!;
 const GSOC_RESOURCE_ID = process.env.GSOC_RESOURCE_ID!;
@@ -15,7 +15,7 @@ const CHAT_STAMP = process.env.CHAT_STAMP!;
 
 type TopicState = {
   index: FeedIndex;
-  queue: Queue;
+  queue: PQueue;
   lastUsed: number;
   initPromise: Promise<void>;
 };
@@ -26,7 +26,7 @@ export class SwarmAggregator {
   private chainEmitter: ChainEmitter;
   private logger = Logger.getInstance();
   private errorHandler = new ErrorHandler();
-  private gsocQueue = new Queue();
+  private gsocQueue = new PQueue({ concurrency: 1 });
 
   private topicStates = new Map<string, TopicState>();
   private messageCache = new Map<string, null>();
@@ -74,7 +74,7 @@ export class SwarmAggregator {
     const identifier = Identifier.fromString(GSOC_TOPIC);
 
     const gsocSub = this.gsocBee.gsocSubscribe(key.publicKey().address(), identifier, {
-      onMessage: (message: Bytes) => this.gsocQueue.enqueue(() => this.gsocCallback(message)),
+      onMessage: (message: Bytes) => this.gsocQueue.add(() => this.gsocCallback(message)),
       onError: console.error,
     });
 
@@ -90,7 +90,7 @@ export class SwarmAggregator {
     const { topicName } = parsed;
     const topicState = await this.getOrCreateTopicState(topicName);
 
-    topicState.queue.enqueue(() => this.processMessageForTopic(topicName, topicState, message));
+    topicState.queue.add(() => this.processMessageForTopic(topicName, topicState, message));
   }
 
   // TODO: process requests in a batch and add more sophisticated validation
@@ -119,7 +119,7 @@ export class SwarmAggregator {
     if (!this.topicStates.has(topicName)) {
       this.topicStates.set(topicName, {
         index: FeedIndex.fromBigInt(BigInt(0)),
-        queue: new Queue(),
+        queue: new PQueue({ concurrency: 1 }),
         lastUsed: Date.now(),
         initPromise: this.initializeTopic(topicName),
       });
