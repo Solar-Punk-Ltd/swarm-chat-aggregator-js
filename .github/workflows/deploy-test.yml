@@ -66,7 +66,7 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: 'dist,node_modules,.env,ecosystem.config.js'
+          source: 'dist,node_modules,.env,ecosystem.config.js,ABI,IDL'
           target: '~/swarm-chat-aggregator'
 
       - name: Start app with PM2
