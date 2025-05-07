@@ -22,8 +22,7 @@
   "author": "levente.kiss@solarpunk.buzz",
   "scripts": {
     "prepare": "husky",
-    "build": "rimraf dist && tsc && pnpm run copy:abi",
-    "copy:abi": "cp -r ./IDL ./dist/IDL && cp -r ./ABI ./dist/ABI",
+    "build": "rimraf dist && tsc",
     "start": "node dist/index.js",
     "lint": "eslint . --ext .ts --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "npm run lint -- --fix",
