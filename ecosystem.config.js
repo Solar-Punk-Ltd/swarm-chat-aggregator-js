@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'swarm-chat-agg',
-      script: 'dist/src/index.js',
+      script: 'dist/index.js',
       interpreter: 'node',
       env: {
         NODE_ENV: 'production',
@@ -15,7 +15,8 @@ module.exports = {
         CHAIN_TYPE: process.env.CHAIN_TYPE,
         RPC_URL: process.env.RPC_URL,
         CONTRACT_ADDRESS: process.env.CONTRACT_ADDRESS,
-        PRIVATE_KEY: process.env.PRIVATE_KEY,
+        EVM_PRIVATE_KEYS: process.env.EVM_PRIVATE_KEYS,
+        SVM_PRIVATE_KEY: process.env.SVM_PRIVATE_KEY,
       },
       instances: 1,
       autorestart: true,

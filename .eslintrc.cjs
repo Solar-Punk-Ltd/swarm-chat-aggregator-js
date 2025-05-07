@@ -11,6 +11,14 @@ module.exports = {
     'plugin:import/typescript',
   ],
   ignorePatterns: ['dist', 'node_modules', '.eslintrc.cjs'],
+  settings: {
+    'import/resolver': {
+      typescript: {},
+      node: {
+        extensions: ['.js', '.ts', '.json'],
+      },
+    },
+  },
   rules: {
     '@typescript-eslint/no-explicit-any': 'off',
     '@typescript-eslint/no-non-null-assertion': 'off',
