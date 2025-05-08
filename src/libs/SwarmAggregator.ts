@@ -1,7 +1,6 @@
 import { Bee, Bytes, FeedIndex, Identifier, PrivateKey, Topic } from '@ethersphere/bee-js';
 import PQueue from 'p-queue';
 
-import { ChainEmitter } from './ChainEmitter.js';
 import { ErrorHandler } from './error.js';
 import { Logger } from './logger.js';
 
@@ -23,7 +22,6 @@ type TopicState = {
 export class SwarmAggregator {
   private gsocBee: Bee;
   private chatBee: Bee;
-  private chainEmitter: ChainEmitter;
   private logger = Logger.getInstance();
   private errorHandler = new ErrorHandler();
   private gsocQueue = new PQueue({ concurrency: 1 });
@@ -36,7 +34,6 @@ export class SwarmAggregator {
   private readonly topicStateCleanupInterval = 24 * 60 * 60 * 1000;
 
   constructor() {
-    this.chainEmitter = new ChainEmitter();
     this.gsocBee = new Bee(GSOC_BEE_URL);
     this.chatBee = new Bee(CHAT_BEE_URL);
   }
@@ -103,12 +100,12 @@ export class SwarmAggregator {
 
       const parsed = message.toJSON() as any;
 
-      if (!parsed.topic) {
+      if (!parsed.chatTopic) {
         this.logger.error('Invalid message format: missing topic');
         return null;
       }
 
-      return { topicName: parsed.topic, message };
+      return { topicName: parsed.chatTopic, message };
     } catch (error) {
       this.logger.error('Failed to parse incoming message:', error);
       return null;
@@ -142,7 +139,6 @@ export class SwarmAggregator {
 
     this.logger.info(`Feed write success on topic ${topicName}: ${res.reference}`);
 
-    this.chainEmitter.emitEventWithRetry(`${topicName}_${topicState.index.toString()}`);
     topicState.index = topicState.index.next();
   }
 
