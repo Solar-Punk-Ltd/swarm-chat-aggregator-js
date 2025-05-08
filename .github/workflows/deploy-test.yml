@@ -40,11 +40,6 @@ jobs:
           echo "CHAT_BEE_URL=${{ secrets.CHAT_BEE_URL }}" >> .env
           echo "CHAT_KEY=${{ secrets.CHAT_KEY }}" >> .env
           echo "CHAT_STAMP=${{ secrets.CHAT_STAMP }}" >> .env
-          echo "CHAIN_TYPE=${{ secrets.CHAIN_TYPE }}" >> .env
-          echo "RPC_URL=${{ secrets.RPC_URL }}" >> .env
-          echo "CONTRACT_ADDRESS=${{ secrets.CONTRACT_ADDRESS }}" >> .env
-          echo "EVM_PRIVATE_KEYS=${{ secrets.EVM_PRIVATE_KEYS }}" >> .env
-          echo "SVM_PRIVATE_KEY=${{ secrets.SVM_PRIVATE_KEY }}" >> .env
         shell: bash
 
       - name: Stop and clean old project on VPS
@@ -66,7 +61,7 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: 'dist,node_modules,.env,ecosystem.config.js,ABI,IDL'
+          source: 'dist,node_modules,.env,ecosystem.config.js'
           target: '~/swarm-chat-aggregator'
 
       - name: Start app with PM2
