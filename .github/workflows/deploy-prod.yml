@@ -1,4 +1,4 @@
-name: Build and Deploy Test ENV to VPS (PM2)
+name: Build and Deploy Prod ENV to VPS (PM2)
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    environment: Test
+    environment: Prod
 
     steps:
       - name: Checkout code
