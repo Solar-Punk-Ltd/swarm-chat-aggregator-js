@@ -3,7 +3,7 @@ name: Build and Deploy Prod ENV to VPS (PM2)
 on:
   push:
     branches:
-      - test
+      - prod
   workflow_dispatch:
 
 jobs:
