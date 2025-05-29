@@ -1,16 +1,19 @@
 import { Bee, Bytes, FeedIndex, Identifier, PrivateKey, Topic } from '@ethersphere/bee-js';
 import PQueue from 'p-queue';
 
+import { DAY } from '../utils/constants.js';
+import { getEnvVariable } from '../utils/env.js';
+
 import { ErrorHandler } from './error.js';
 import { Logger } from './logger.js';
 
-const GSOC_BEE_URL = process.env.GSOC_BEE_URL!;
-const GSOC_RESOURCE_ID = process.env.GSOC_RESOURCE_ID!;
-const GSOC_TOPIC = process.env.GSOC_TOPIC!;
+const GSOC_BEE_URL = getEnvVariable('GSOC_BEE_URL');
+const GSOC_RESOURCE_ID = getEnvVariable('GSOC_RESOURCE_ID');
+const GSOC_TOPIC = getEnvVariable('GSOC_TOPIC');
 
-const CHAT_BEE_URL = process.env.CHAT_BEE_URL!;
-const CHAT_KEY = process.env.CHAT_KEY!;
-const CHAT_STAMP = process.env.CHAT_STAMP!;
+const CHAT_BEE_URL = getEnvVariable('CHAT_BEE_URL');
+const CHAT_KEY = getEnvVariable('CHAT_KEY');
+const CHAT_STAMP = getEnvVariable('CHAT_STAMP');
 
 type TopicState = {
   index: FeedIndex;
@@ -23,15 +26,15 @@ export class SwarmAggregator {
   private gsocBee: Bee;
   private chatBee: Bee;
   private logger = Logger.getInstance();
-  private errorHandler = new ErrorHandler();
+  private errorHandler = ErrorHandler.getInstance();
   private gsocQueue = new PQueue({ concurrency: 1 });
 
   private topicStates = new Map<string, TopicState>();
   private messageCache = new Map<string, null>();
   private readonly maxCacheSize = 50_000;
   private readonly minCacheSize = 1_000;
-  private readonly maxTopicStateAge = 48 * 60 * 60 * 1000;
-  private readonly topicStateCleanupInterval = 24 * 60 * 60 * 1000;
+  private readonly maxTopicStateAge = 2 * DAY;
+  private readonly topicStateCleanupInterval = 1 * DAY;
 
   constructor() {
     this.gsocBee = new Bee(GSOC_BEE_URL);
@@ -55,6 +58,7 @@ export class SwarmAggregator {
     } catch (error) {
       if (error instanceof Error && error.message.includes('404')) {
         this.logger.warn(`Topic ${topicName} not found, starting fresh.`);
+
         const topicState = this.topicStates.get(topicName);
         if (topicState) {
           topicState.index = FeedIndex.fromBigInt(BigInt(0));
