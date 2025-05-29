@@ -1,6 +1,6 @@
 # Swarm Chat JS: Example GSOC Aggregator Server 🐝💬
 
-This project provides an example implementation of a GSOC (Global State Oracle of Swarm) aggregator server designed to work with the [Solar-Punk-Ltd/swarm-chat-js](https://github.com/Solar-Punk-Ltd/swarm-chat-js) library.
+This project provides an example implementation of a GSOC aggregator server designed to work with the [Solar-Punk-Ltd/swarm-chat-js](https://github.com/Solar-Punk-Ltd/swarm-chat-js) library.
 
 The primary function of this server is to receive messages sent by chat users via a public GSOC feed and consolidate them into a more persistent, access-controlled Swarm feed (the "chat feed"). This aggregator can manage multiple chat topics under a single GSOC node.
 
