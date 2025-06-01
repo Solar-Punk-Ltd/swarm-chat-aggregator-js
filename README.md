@@ -2,7 +2,7 @@
 
 This project provides an example implementation of a GSOC aggregator server designed to work with the [Solar-Punk-Ltd/swarm-chat-js](https://github.com/Solar-Punk-Ltd/swarm-chat-js) library.
 
-The primary function of this server is to receive messages sent by chat users via a public GSOC feed and consolidate them into a more persistent, access-controlled Swarm feed (the "chat feed"). This aggregator can manage multiple chat topics under a single GSOC node.
+The primary function of this server is to receive messages sent by chat users via GSOC and consolidate them into a more persistent, access-controlled Swarm feed (the "chat feed"). This aggregator can manage multiple chat topics under a single GSOC node.
 
 **Note:** This is an example implementation. For production environments, consider enhancing aspects like batch processing, message validation, schema enforcement, and feed writing policies.
 
@@ -54,8 +54,6 @@ The server requires the following environment variables to be set:
 5.  **Start the server:**
     ```bash
     npm start
-    # or
-    yarn start
     ```
 
 ---
@@ -78,5 +76,3 @@ This example serves as a basic illustration. For a more robust, production-ready
 - [What are Feeds? (Official Swarm Documentation)](https://docs.ethswarm.org/docs/develop/tools-and-features/feeds#what-are-feeds)
 - [GSOC Introduction (Official Swarm Documentation)](https://docs.ethswarm.org/docs/develop/tools-and-features/gsoc/#introduction)
 - [Solar-Punk-Ltd/swarm-chat-js Library](https://github.com/Solar-Punk-Ltd/swarm-chat-js)
-
----
