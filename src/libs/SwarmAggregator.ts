@@ -1,6 +1,7 @@
 import { Bee, Bytes, FeedIndex, Identifier, PrivateKey, Topic } from '@ethersphere/bee-js';
 import PQueue from 'p-queue';
 
+import { MessageData, MessageWithReactions, ReactionStateRef } from '../types.js';
 import { DAY } from '../utils/constants.js';
 import { getEnvVariable } from '../utils/env.js';
 
@@ -20,62 +21,37 @@ type TopicState = {
   queue: PQueue;
   lastUsed: number;
   initPromise: Promise<void>;
+  reactionState: MessageData[] | null;
+  reactionStateRefs: ReactionStateRef[];
 };
 
 export class SwarmAggregator {
-  private gsocBee: Bee;
-  private chatBee: Bee;
-  private logger = Logger.getInstance();
-  private errorHandler = ErrorHandler.getInstance();
-  private gsocQueue = new PQueue({ concurrency: 1 });
+  private readonly gsocBee: Bee;
+  private readonly chatBee: Bee;
+  private readonly logger = Logger.getInstance();
+  private readonly errorHandler = ErrorHandler.getInstance();
+  private readonly gsocQueue = new PQueue({ concurrency: 1 });
 
-  private topicStates = new Map<string, TopicState>();
-  private messageCache = new Map<string, null>();
-  private readonly maxCacheSize = 50_000;
-  private readonly minCacheSize = 1_000;
+  private readonly topicStates = new Map<string, TopicState>();
+  private readonly messageCache = new Map<string, string | null>();
+
+  private readonly maxCacheSize = 1000;
+  private readonly minCacheSize = 100;
   private readonly maxTopicStateAge = 2 * DAY;
   private readonly topicStateCleanupInterval = 1 * DAY;
+  private readonly maxReactionStateSize = 10 * 1024 * 1024; // 10MB in bytes
 
   constructor() {
     this.gsocBee = new Bee(GSOC_BEE_URL);
     this.chatBee = new Bee(CHAT_BEE_URL);
   }
 
-  private async initializeTopic(topicName: string): Promise<void> {
-    const topic = Topic.fromString(topicName);
-    const signer = new PrivateKey(CHAT_KEY);
-    const publicKey = signer.publicKey().address();
-    const feedReader = this.chatBee.makeFeedReader(topic, publicKey);
-
-    try {
-      const data = await feedReader.downloadPayload();
-      this.logger.info(`Init topic ${topicName} feed index: ${data.feedIndex.toString()}`);
-
-      const topicState = this.topicStates.get(topicName);
-      if (topicState) {
-        topicState.index = data.feedIndex.next();
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('404')) {
-        this.logger.warn(`Topic ${topicName} not found, starting fresh.`);
-
-        const topicState = this.topicStates.get(topicName);
-        if (topicState) {
-          topicState.index = FeedIndex.fromBigInt(BigInt(0));
-        }
-      } else {
-        this.errorHandler.handleError(error, `initializeTopic:${topicName}`);
-      }
-    }
-  }
-
-  //TODO: process requests in a batch
   public subscribeToGsoc() {
     const key = new PrivateKey(GSOC_RESOURCE_ID);
     const identifier = Identifier.fromString(GSOC_TOPIC);
 
     const gsocSub = this.gsocBee.gsocSubscribe(key.publicKey().address(), identifier, {
-      onMessage: (message: Bytes) => this.gsocQueue.add(() => this.gsocCallback(message)),
+      onMessage: (message: Bytes) => this.gsocQueue.add(() => this.handleGsocMessage(message)),
       onError: console.error,
     });
 
@@ -84,17 +60,22 @@ export class SwarmAggregator {
     return gsocSub;
   }
 
-  private async gsocCallback(message: Bytes) {
+  public startTopicCleaner() {
+    setInterval(() => {
+      this.cleanupInactiveTopics();
+    }, this.topicStateCleanupInterval);
+  }
+
+  private async handleGsocMessage(message: Bytes): Promise<void> {
     const parsed = this.parseIncomingMessage(message);
     if (!parsed) return;
 
     const { topicName } = parsed;
     const topicState = await this.getOrCreateTopicState(topicName);
 
-    topicState.queue.add(() => this.processMessageForTopic(topicName, topicState, message));
+    await topicState.queue.add(() => this.processMessageForTopic(topicName, topicState, message));
   }
 
-  // TODO: process requests in a batch and add more sophisticated validation
   private parseIncomingMessage(message: Bytes): { topicName: string; message: Bytes } | null {
     try {
       if (!this.shouldProcessMessage(message)) {
@@ -102,7 +83,7 @@ export class SwarmAggregator {
         return null;
       }
 
-      const parsed = message.toJSON() as any;
+      const parsed = message.toJSON() as MessageData;
 
       if (!parsed.chatTopic) {
         this.logger.error('Invalid message format: missing topic');
@@ -117,19 +98,83 @@ export class SwarmAggregator {
   }
 
   private async getOrCreateTopicState(topicName: string): Promise<TopicState> {
-    if (!this.topicStates.has(topicName)) {
-      this.topicStates.set(topicName, {
-        index: FeedIndex.fromBigInt(BigInt(0)),
-        queue: new PQueue({ concurrency: 1 }),
-        lastUsed: Date.now(),
-        initPromise: this.initializeTopic(topicName),
-      });
+    let topicState = this.topicStates.get(topicName);
+
+    if (!topicState) {
+      topicState = this.createNewTopicState(topicName);
+      this.topicStates.set(topicName, topicState);
     }
 
-    const topicState = this.topicStates.get(topicName)!;
     topicState.lastUsed = Date.now();
     await topicState.initPromise;
     return topicState;
+  }
+
+  private createNewTopicState(topicName: string): TopicState {
+    return {
+      index: FeedIndex.fromBigInt(BigInt(0)),
+      queue: new PQueue({ concurrency: 1 }),
+      lastUsed: Date.now(),
+      initPromise: this.initializeTopic(topicName),
+      reactionState: null,
+      reactionStateRefs: [],
+    };
+  }
+
+  private async initializeTopic(topicName: string): Promise<void> {
+    const topic = Topic.fromString(topicName);
+    const signer = new PrivateKey(CHAT_KEY);
+    const publicKey = signer.publicKey().address();
+    const feedReader = this.chatBee.makeFeedReader(topic, publicKey);
+
+    try {
+      const data = await feedReader.downloadPayload();
+      this.logger.info(`Init topic ${topicName} feed index: ${data.feedIndex.toString()}`);
+
+      await this.updateTopicStateFromFeedData(topicName, data);
+    } catch (error) {
+      if (this.isNotFoundError(error)) {
+        this.logger.warn(`Topic ${topicName} not found, starting fresh.`);
+        this.initializeTopicStateAsEmpty(topicName);
+      } else {
+        this.errorHandler.handleError(error, `initializeTopic:${topicName}`);
+      }
+    }
+  }
+
+  private async updateTopicStateFromFeedData(topicName: string, data: any): Promise<void> {
+    const topicState = this.topicStates.get(topicName);
+    if (!topicState) return;
+
+    topicState.index = data.feedIndex.next();
+
+    try {
+      const lastMessageState = data.payload.toJSON() as MessageWithReactions;
+      if (lastMessageState?.reactionState && Array.isArray(lastMessageState.reactionState)) {
+        topicState.reactionStateRefs = lastMessageState.reactionState as ReactionStateRef[];
+
+        if (topicState.reactionStateRefs.length > 0) {
+          const latestRef = topicState.reactionStateRefs.reduce((latest, current) =>
+            current.timestamp > latest.timestamp ? current : latest,
+          );
+          const state = await this.chatBee.downloadData(latestRef.reference);
+          topicState.reactionState = state.toJSON() as MessageData[];
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Failed to parse last message reaction state for topic ${topicName}:`, error);
+    }
+  }
+
+  private initializeTopicStateAsEmpty(topicName: string): void {
+    const topicState = this.topicStates.get(topicName);
+    if (topicState) {
+      topicState.index = FeedIndex.fromBigInt(BigInt(0));
+    }
+  }
+
+  private isNotFoundError(error: unknown): boolean {
+    return error instanceof Error && error.message.includes('404');
   }
 
   private async processMessageForTopic(topicName: string, topicState: TopicState, message: Bytes): Promise<void> {
@@ -137,25 +182,95 @@ export class SwarmAggregator {
     const signer = new PrivateKey(CHAT_KEY);
     const feedWriter = this.chatBee.makeFeedWriter(topic, signer);
 
-    const res = await feedWriter.uploadPayload(CHAT_STAMP, message.toUint8Array(), {
+    const data = message.toJSON() as MessageWithReactions;
+    const stateRefs = await this.handleReactionState(topicState, data);
+
+    const newData = {
+      message: data.message,
+      reactionState: stateRefs && stateRefs.length > 0 ? stateRefs : null,
+    };
+
+    const res = await feedWriter.uploadPayload(CHAT_STAMP, JSON.stringify(newData), {
       index: topicState.index,
     });
 
     this.logger.info(`Feed write success on topic ${topicName}: ${res.reference}`);
-
     topicState.index = topicState.index.next();
   }
 
-  public startTopicCleaner() {
-    setInterval(() => {
-      const now = Date.now();
-      for (const [topic, state] of this.topicStates) {
-        if (now - state.lastUsed > this.maxTopicStateAge) {
-          this.logger.info(`Removing inactive topic queue: ${topic}`);
-          this.topicStates.delete(topic);
-        }
+  private async handleReactionState(
+    topicState: TopicState,
+    data: MessageWithReactions,
+  ): Promise<ReactionStateRef[] | null> {
+    if (!this.isReactionOrThreadMessage(data.message.type)) {
+      return null;
+    }
+
+    const currState = topicState.reactionState || [];
+    currState.push(data.message);
+
+    const stateString = JSON.stringify(currState);
+    const stateSize = new TextEncoder().encode(stateString).length;
+
+    if (stateSize > this.maxReactionStateSize) {
+      const newState = [data.message];
+      const newStateString = JSON.stringify(newState);
+
+      const uploadResult = await this.chatBee.uploadData(CHAT_STAMP, newStateString, {
+        redundancyLevel: 3,
+      });
+
+      const newRef: ReactionStateRef = {
+        reference: uploadResult.reference.toString(),
+        timestamp: Date.now(),
+      };
+
+      topicState.reactionStateRefs.push(newRef);
+      topicState.reactionState = newState;
+
+      this.logger.info(
+        `Created new reaction state reference due to size limit. Total refs: ${topicState.reactionStateRefs.length}`,
+      );
+
+      return topicState.reactionStateRefs;
+    } else {
+      const uploadResult = await this.chatBee.uploadData(CHAT_STAMP, stateString, {
+        redundancyLevel: 3,
+      });
+
+      const newRef: ReactionStateRef = {
+        reference: uploadResult.reference.toString(),
+        timestamp: Date.now(),
+      };
+
+      if (topicState.reactionStateRefs.length > 0) {
+        const latestIndex = topicState.reactionStateRefs.reduce(
+          (latestIdx, current, idx, arr) => (current.timestamp > arr[latestIdx].timestamp ? idx : latestIdx),
+          0,
+        );
+        topicState.reactionStateRefs[latestIndex] = newRef;
+      } else {
+        topicState.reactionStateRefs.push(newRef);
       }
-    }, this.topicStateCleanupInterval);
+
+      topicState.reactionState = currState;
+
+      return topicState.reactionStateRefs;
+    }
+  }
+
+  private isReactionOrThreadMessage(messageType: string): boolean {
+    return messageType === 'reaction' || messageType === 'thread';
+  }
+
+  private cleanupInactiveTopics(): void {
+    const now = Date.now();
+    for (const [topic, state] of this.topicStates) {
+      if (now - state.lastUsed > this.maxTopicStateAge) {
+        this.logger.info(`Removing inactive topic queue: ${topic}`);
+        this.topicStates.delete(topic);
+      }
+    }
   }
 
   private shouldProcessMessage(message: Bytes): boolean {
@@ -166,21 +281,26 @@ export class SwarmAggregator {
     }
 
     this.messageCache.set(key, null);
-
-    if (this.messageCache.size > this.maxCacheSize) {
-      const excess = this.messageCache.size - this.minCacheSize;
-      const keys = this.messageCache.keys();
-
-      for (let i = 0; i < excess; i++) {
-        const oldestKey = keys.next().value;
-        if (oldestKey !== undefined) {
-          this.messageCache.delete(oldestKey);
-        }
-      }
-
-      this.logger.info(`Message cache pruned. Kept last ${this.minCacheSize} entries.`);
-    }
+    this.pruneMessageCacheIfNeeded();
 
     return true;
+  }
+
+  private pruneMessageCacheIfNeeded(): void {
+    if (this.messageCache.size <= this.maxCacheSize) {
+      return;
+    }
+
+    const excess = this.messageCache.size - this.minCacheSize;
+    const keys = this.messageCache.keys();
+
+    for (let i = 0; i < excess; i++) {
+      const oldestKey = keys.next().value;
+      if (oldestKey !== undefined) {
+        this.messageCache.delete(oldestKey);
+      }
+    }
+
+    this.logger.info(`Message cache pruned. Kept last ${this.minCacheSize} entries.`);
   }
 }
