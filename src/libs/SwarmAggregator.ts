@@ -182,11 +182,11 @@ export class SwarmAggregator {
     const signer = new PrivateKey(CHAT_KEY);
     const feedWriter = this.chatBee.makeFeedWriter(topic, signer);
 
-    const data = message.toJSON() as MessageWithReactions;
+    const data = message.toJSON() as MessageData;
     const stateRefs = await this.handleReactionState(topicState, data);
 
     const newData = {
-      message: data.message,
+      message: data,
       reactionState: stateRefs && stateRefs.length > 0 ? stateRefs : null,
     };
 
@@ -198,22 +198,19 @@ export class SwarmAggregator {
     topicState.index = topicState.index.next();
   }
 
-  private async handleReactionState(
-    topicState: TopicState,
-    data: MessageWithReactions,
-  ): Promise<ReactionStateRef[] | null> {
-    if (!this.isReactionOrThreadMessage(data.message.type)) {
+  private async handleReactionState(topicState: TopicState, message: MessageData): Promise<ReactionStateRef[] | null> {
+    if (!this.isReactionOrThreadMessage(message.type)) {
       return null;
     }
 
     const currState = topicState.reactionState || [];
-    currState.push(data.message);
+    currState.push(message);
 
     const stateString = JSON.stringify(currState);
     const stateSize = new TextEncoder().encode(stateString).length;
 
     if (stateSize > this.maxReactionStateSize) {
-      const newState = [data.message];
+      const newState = [message];
       const newStateString = JSON.stringify(newState);
 
       const uploadResult = await this.chatBee.uploadData(CHAT_STAMP, newStateString, {
