@@ -1,7 +1,7 @@
-import { Bee, Bytes, FeedIndex, Identifier, PrivateKey, Topic } from '@ethersphere/bee-js';
+import { Bee, Bytes, FeedIndex, Identifier, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 import PQueue from 'p-queue';
 
-import { MessageData, MessageWithReactions, ReactionStateRef } from '../types.js';
+import { MessageData, MessageStateRef, StatefulMessage } from '../types.js';
 import { DAY } from '../utils/constants.js';
 import { getEnvVariable } from '../utils/env.js';
 
@@ -21,8 +21,8 @@ type TopicState = {
   queue: PQueue;
   lastUsed: number;
   initPromise: Promise<void>;
-  reactionState: MessageData[] | null;
-  reactionStateRefs: ReactionStateRef[];
+  messageState: MessageData[] | null;
+  messageStateRefs: MessageStateRef[];
 };
 
 export class SwarmAggregator {
@@ -39,7 +39,7 @@ export class SwarmAggregator {
   private readonly minCacheSize = 100;
   private readonly maxTopicStateAge = 2 * DAY;
   private readonly topicStateCleanupInterval = 1 * DAY;
-  private readonly maxReactionStateSize = 10 * 1024 * 1024; // 10MB in bytes
+  private readonly maxMessageStateSize = 10 * 1024 * 1024; // 10MB in bytes
 
   constructor() {
     this.gsocBee = new Bee(GSOC_BEE_URL);
@@ -116,8 +116,8 @@ export class SwarmAggregator {
       queue: new PQueue({ concurrency: 1 }),
       lastUsed: Date.now(),
       initPromise: this.initializeTopic(topicName),
-      reactionState: null,
-      reactionStateRefs: [],
+      messageState: null,
+      messageStateRefs: [],
     };
   }
 
@@ -149,20 +149,20 @@ export class SwarmAggregator {
     topicState.index = data.feedIndex.next();
 
     try {
-      const lastMessageState = data.payload.toJSON() as MessageWithReactions;
-      if (lastMessageState?.reactionState && Array.isArray(lastMessageState.reactionState)) {
-        topicState.reactionStateRefs = lastMessageState.reactionState as ReactionStateRef[];
+      const lastMessageState = data.payload.toJSON() as StatefulMessage;
+      if (lastMessageState?.messageStateRefs && Array.isArray(lastMessageState.messageStateRefs)) {
+        topicState.messageStateRefs = lastMessageState.messageStateRefs as MessageStateRef[];
 
-        if (topicState.reactionStateRefs.length > 0) {
-          const latestRef = topicState.reactionStateRefs.reduce((latest, current) =>
+        if (topicState.messageStateRefs.length > 0) {
+          const latestRef = topicState.messageStateRefs.reduce((latest, current) =>
             current.timestamp > latest.timestamp ? current : latest,
           );
           const state = await this.chatBee.downloadData(latestRef.reference);
-          topicState.reactionState = state.toJSON() as MessageData[];
+          topicState.messageState = state.toJSON() as MessageData[];
         }
       }
     } catch (error) {
-      this.logger.error(`Failed to parse last message reaction state for topic ${topicName}:`, error);
+      this.logger.error(`Failed to parse last message state for topic ${topicName}:`, error);
     }
   }
 
@@ -183,11 +183,11 @@ export class SwarmAggregator {
     const feedWriter = this.chatBee.makeFeedWriter(topic, signer);
 
     const data = message.toJSON() as MessageData;
-    const stateRefs = await this.handleReactionState(topicState, data);
+    const stateRefs = await this.handleMessageState(topicState, data);
 
     const newData = {
       message: data,
-      reactionState: stateRefs && stateRefs.length > 0 ? stateRefs : null,
+      messageStateRefs: stateRefs && stateRefs.length > 0 ? stateRefs : null,
     };
 
     const res = await feedWriter.uploadPayload(CHAT_STAMP, JSON.stringify(newData), {
@@ -198,66 +198,58 @@ export class SwarmAggregator {
     topicState.index = topicState.index.next();
   }
 
-  private async handleReactionState(topicState: TopicState, message: MessageData): Promise<ReactionStateRef[] | null> {
-    if (!this.isReactionOrThreadMessage(message.type)) {
-      return null;
-    }
-
-    const currState = topicState.reactionState || [];
+  private async handleMessageState(topicState: TopicState, message: MessageData): Promise<MessageStateRef[] | null> {
+    const currState = topicState.messageState || [];
     currState.push(message);
 
     const stateString = JSON.stringify(currState);
     const stateSize = new TextEncoder().encode(stateString).length;
 
-    if (stateSize > this.maxReactionStateSize) {
+    if (stateSize > this.maxMessageStateSize) {
       const newState = [message];
       const newStateString = JSON.stringify(newState);
 
       const uploadResult = await this.chatBee.uploadData(CHAT_STAMP, newStateString, {
-        redundancyLevel: 3,
+        redundancyLevel: RedundancyLevel.INSANE,
       });
 
-      const newRef: ReactionStateRef = {
+      const newRef: MessageStateRef = {
         reference: uploadResult.reference.toString(),
         timestamp: Date.now(),
       };
 
-      topicState.reactionStateRefs.push(newRef);
-      topicState.reactionState = newState;
+      topicState.messageStateRefs.push(newRef);
+      topicState.messageState = newState;
 
       this.logger.info(
-        `Created new reaction state reference due to size limit. Total refs: ${topicState.reactionStateRefs.length}`,
+        `Created new message state reference due to size limit. Total refs: ${topicState.messageStateRefs.length}`,
       );
 
-      return topicState.reactionStateRefs;
+      return topicState.messageStateRefs;
     } else {
       const uploadResult = await this.chatBee.uploadData(CHAT_STAMP, stateString, {
-        redundancyLevel: 3,
+        redundancyLevel: RedundancyLevel.INSANE,
       });
 
-      const newRef: ReactionStateRef = {
+      const newRef: MessageStateRef = {
         reference: uploadResult.reference.toString(),
         timestamp: Date.now(),
       };
 
-      if (topicState.reactionStateRefs.length > 0) {
-        const latestIndex = topicState.reactionStateRefs.reduce(
+      if (topicState.messageStateRefs.length > 0) {
+        const latestIndex = topicState.messageStateRefs.reduce(
           (latestIdx, current, idx, arr) => (current.timestamp > arr[latestIdx].timestamp ? idx : latestIdx),
           0,
         );
-        topicState.reactionStateRefs[latestIndex] = newRef;
+        topicState.messageStateRefs[latestIndex] = newRef;
       } else {
-        topicState.reactionStateRefs.push(newRef);
+        topicState.messageStateRefs.push(newRef);
       }
 
-      topicState.reactionState = currState;
+      topicState.messageState = currState;
 
-      return topicState.reactionStateRefs;
+      return topicState.messageStateRefs;
     }
-  }
-
-  private isReactionOrThreadMessage(messageType: string): boolean {
-    return messageType === 'reaction' || messageType === 'thread';
   }
 
   private cleanupInactiveTopics(): void {

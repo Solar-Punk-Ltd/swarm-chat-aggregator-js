@@ -19,12 +19,12 @@ export interface MessageData {
   userTopic: string;
 }
 
-export interface MessageWithReactions {
+export interface StatefulMessage {
   message: MessageData;
-  reactionState: ReactionStateRef[] | null;
+  messageStateRefs: MessageStateRef[] | null;
 }
 
-export interface ReactionStateRef {
+export interface MessageStateRef {
   reference: string;
   timestamp: number;
 }
