@@ -1,7 +1,7 @@
 import { Bee, Bytes, FeedIndex, Identifier, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
+import { MessageData, MessageStateRef, StatefulMessage } from '@solarpunkltd/swarm-chat-js';
 import PQueue from 'p-queue';
 
-import { MessageData, MessageStateRef, StatefulMessage } from '../types.js';
 import { DAY } from '../utils/constants.js';
 import { getEnvVariable } from '../utils/env.js';
 
