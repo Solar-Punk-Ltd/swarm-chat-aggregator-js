@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -12,7 +12,6 @@ COPY . .
 
 RUN pnpm build
 
-# Production stage
 FROM node:20-alpine AS production
 
 WORKDIR /app
@@ -23,7 +22,7 @@ COPY package.json pnpm-lock.yaml ./
 
 RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 
-COPY --from=base /app/dist ./dist
+COPY --from=builder /app/dist ./dist
 
 RUN addgroup -g 1001 -S nodejs && \
   adduser -S aggregator -u 1001
@@ -32,7 +31,4 @@ RUN chown -R aggregator:nodejs /app
 
 USER aggregator
 
-EXPOSE 3000
-
-# Start the application
 CMD ["pnpm", "start"]
