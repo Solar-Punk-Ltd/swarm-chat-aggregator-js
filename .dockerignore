@@ -1,0 +1,59 @@
+# Environment files
+.env
+.env.sample
+
+# Dependencies (will be installed in Docker)
+node_modules
+
+# Build outputs (will be built in Docker)
+dist
+
+# Git and version control
+.git
+.gitignore
+
+# IDE/Editor files
+.vscode
+.idea
+
+# Development configuration files
+.eslintrc.cjs
+.eslintignore
+.prettierrc
+.prettierignore
+commitlint.config.js
+lint-staged.config.mjs
+.husky
+
+# Logs and debug files
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS generated files
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Documentation and non-essential files
+README.md
+LICENSE
+
+# Docker files
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Development and deployment configs
+ecosystem.config.js
+.nvmrc
+.npmignore
+
+# GitHub workflows
+.github
