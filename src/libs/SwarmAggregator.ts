@@ -49,7 +49,11 @@ export class SwarmAggregator {
   private readonly nodeManager = new NodeManager(CHAT_BEE_URL, NGINX_ADMIN_SECRET);
 
   constructor() {
-    this.gsocBee = new Bee(GSOC_BEE_URL);
+    this.gsocBee = new Bee(GSOC_BEE_URL, {
+      headers: {
+        'X-MSRS-Admin-Token': NGINX_ADMIN_SECRET,
+      },
+    });
     this.chatReaderBee = new Bee(`${CHAT_BEE_URL}/read`);
   }
 
