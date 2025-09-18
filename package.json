@@ -29,8 +29,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@solarpunkltd/swarm-chat-js": "^5.0.0",
     "@ethersphere/bee-js": "^9.0.3",
+    "@solarpunkltd/swarm-chat-js": "^5.1.0",
+    "axios": "^1.12.2",
     "dotenv": "^16.4.7",
     "p-queue": "^8.1.0"
   },

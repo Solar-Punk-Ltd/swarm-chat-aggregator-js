@@ -7,6 +7,7 @@ import { getEnvVariable } from '../utils/env.js';
 
 import { ErrorHandler } from './error.js';
 import { Logger } from './logger.js';
+import { NodeManager } from './NodeManager.js';
 
 const GSOC_BEE_URL = getEnvVariable('GSOC_BEE_URL');
 const GSOC_RESOURCE_ID = getEnvVariable('GSOC_RESOURCE_ID');
@@ -15,6 +16,8 @@ const GSOC_TOPIC = getEnvVariable('GSOC_TOPIC');
 const CHAT_BEE_URL = getEnvVariable('CHAT_BEE_URL');
 const CHAT_KEY = getEnvVariable('CHAT_KEY');
 const CHAT_STAMP = getEnvVariable('CHAT_STAMP');
+
+const NGINX_ADMIN_SECRET = getEnvVariable('NGINX_ADMIN_SECRET');
 
 type TopicState = {
   index: FeedIndex;
@@ -25,9 +28,11 @@ type TopicState = {
   messageStateRefs: MessageStateRef[];
 };
 
+// TODO tech debt: make types optional for non gateway solutions
 export class SwarmAggregator {
+  private chatWriterBee: Bee | undefined;
   private readonly gsocBee: Bee;
-  private readonly chatBee: Bee;
+  private readonly chatReaderBee: Bee;
   private readonly logger = Logger.getInstance();
   private readonly errorHandler = ErrorHandler.getInstance();
   private readonly gsocQueue = new PQueue({ concurrency: 1 });
@@ -41,9 +46,11 @@ export class SwarmAggregator {
   private readonly topicStateCleanupInterval = 1 * DAY;
   private readonly maxMessageStateSize = 10 * 1024 * 1024; // 10MB in bytes
 
+  private readonly nodeManager = new NodeManager(CHAT_BEE_URL, NGINX_ADMIN_SECRET);
+
   constructor() {
     this.gsocBee = new Bee(GSOC_BEE_URL);
-    this.chatBee = new Bee(CHAT_BEE_URL);
+    this.chatReaderBee = new Bee(`${CHAT_BEE_URL}/read`);
   }
 
   public subscribeToGsoc() {
@@ -90,6 +97,11 @@ export class SwarmAggregator {
         return null;
       }
 
+      if (!parsed?.additionalProps?.streamId) {
+        this.logger.error('Invalid message format: missing streamId in additionalProps');
+        return null;
+      }
+
       return { topicName: parsed.chatTopic, message };
     } catch (error) {
       this.logger.error('Failed to parse incoming message:', error);
@@ -125,7 +137,7 @@ export class SwarmAggregator {
     const topic = Topic.fromString(topicName);
     const signer = new PrivateKey(CHAT_KEY);
     const publicKey = signer.publicKey().address();
-    const feedReader = this.chatBee.makeFeedReader(topic, publicKey);
+    const feedReader = this.chatReaderBee.makeFeedReader(topic, publicKey);
 
     try {
       const data = await feedReader.downloadPayload();
@@ -157,7 +169,7 @@ export class SwarmAggregator {
           const latestRef = topicState.messageStateRefs.reduce((latest, current) =>
             current.timestamp > latest.timestamp ? current : latest,
           );
-          const state = await this.chatBee.downloadData(latestRef.reference);
+          const state = await this.chatReaderBee.downloadData(latestRef.reference);
           topicState.messageState = state.toJSON() as MessageData[];
         }
       }
@@ -178,10 +190,6 @@ export class SwarmAggregator {
   }
 
   private async processMessageForTopic(topicName: string, topicState: TopicState, message: Bytes): Promise<void> {
-    const topic = Topic.fromString(topicName);
-    const signer = new PrivateKey(CHAT_KEY);
-    const feedWriter = this.chatBee.makeFeedWriter(topic, signer);
-
     const data = message.toJSON() as MessageData;
     const stateRefs = await this.handleMessageState(topicState, data);
 
@@ -189,6 +197,20 @@ export class SwarmAggregator {
       message: data,
       messageStateRefs: stateRefs && stateRefs.length > 0 ? stateRefs : null,
     };
+
+    const nodeInfo = await this.nodeManager.getRequiredChatNode(data?.additionalProps?.streamId);
+
+    this.chatWriterBee = nodeInfo
+      ? new Bee(`${CHAT_BEE_URL}/admin/direct/${nodeInfo.port}`, {
+          headers: {
+            'X-MSRS-Admin-Token': NGINX_ADMIN_SECRET,
+          },
+        })
+      : new Bee(`${CHAT_BEE_URL}/write`);
+
+    const topic = Topic.fromString(topicName);
+    const signer = new PrivateKey(CHAT_KEY);
+    const feedWriter = this.chatWriterBee.makeFeedWriter(topic, signer);
 
     const res = await feedWriter.uploadPayload(CHAT_STAMP, JSON.stringify(newData), {
       index: topicState.index,
@@ -199,6 +221,11 @@ export class SwarmAggregator {
   }
 
   private async handleMessageState(topicState: TopicState, message: MessageData): Promise<MessageStateRef[] | null> {
+    if (!this.chatWriterBee) {
+      this.logger.error('Chat writer bee is not initialized.');
+      return null;
+    }
+
     const currState = topicState.messageState || [];
     currState.push(message);
 
@@ -209,7 +236,7 @@ export class SwarmAggregator {
       const newState = [message];
       const newStateString = JSON.stringify(newState);
 
-      const uploadResult = await this.chatBee.uploadData(CHAT_STAMP, newStateString, {
+      const uploadResult = await this.chatWriterBee.uploadData(CHAT_STAMP, newStateString, {
         redundancyLevel: RedundancyLevel.INSANE,
       });
 
@@ -227,7 +254,7 @@ export class SwarmAggregator {
 
       return topicState.messageStateRefs;
     } else {
-      const uploadResult = await this.chatBee.uploadData(CHAT_STAMP, stateString, {
+      const uploadResult = await this.chatWriterBee.uploadData(CHAT_STAMP, stateString, {
         redundancyLevel: RedundancyLevel.INSANE,
       });
 
