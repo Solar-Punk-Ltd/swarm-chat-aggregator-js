@@ -17,7 +17,7 @@ The aggregator server operates through the following steps:
 3.  **Message Processing:** The server expects incoming messages to contain a `chatTopic` field (e.g., `parsed.chatTopic`), indicating the specific chat room or topic the message belongs to. This allows the aggregator to handle multiple distinct chat conversations.
 4.  **Message State Management:** The server maintains a complete message history across multiple Swarm references. This history includes all types of messages (reactions, threads, and regular messages). When the accumulated message state exceeds the configurable size limit (10MB by default), a new reference is created to prevent individual references from becoming too large. This creates an array of timestamped references, with only the latest reference being actively updated.
 5.  **Chat Feed Writing:** Valid messages are then written to a separate, designated Swarm feed (the "chat feed"). This feed is managed by a different Bee node (`CHAT_BEE_URL`) and secured with a private key (`CHAT_KEY`), ensuring that only authorized entities (like this aggregator) can write to it. The message state history is stored as an array of references (`ReactionStateRef[]`) rather than a single reference, enabling scalable message history management. Writes to this feed require a valid postage stamp (`CHAT_STAMP`).
-6.  **Waku Integration:** When configured with `PUSH_MODE="waku"`, the aggregator does **not** write to the consolidated Swarm feed for polling clients. Instead, it sends push messages directly over the Waku network, enabling real-time message delivery to connected Waku clients. This mode is useful for applications that require instant updates without relying on periodic feed polling.
+6.  **Waku Integration:** When configured with `WAKU="yes"`, after writing to the consolidated Swarm feed, the aggregator sends push messages directly over the Waku network. This enables real-time message delivery to connected Waku clients and is useful for applications that require instant updates without relying on periodic feed polling.
 
 This setup allows for a public message submission mechanism via GSOC, with a backend aggregator ensuring messages are collected and stored reliably on a more controlled Swarm feed with efficient handling of large message histories.
 
@@ -69,7 +69,7 @@ The server requires the following environment variables to be set:
 | `CHAT_BEE_URL`     | The URL of the Bee node used for writing to the consolidated chat feed.          |
 | `CHAT_KEY`         | The private key used to sign updates to the consolidated chat feed.              |
 | `CHAT_STAMP`       | The postage stamp ID used for uploading content to the chat feed.                |
-| `PUSH_MODE`        | The message push mode: `"feed"` (default) or `"waku"` for Waku push mode.        |
+| `WAKU`             | The message push: `"yes"` for Waku push mode.                                    |
 
 ## 🚀 Running the Aggregator
 
