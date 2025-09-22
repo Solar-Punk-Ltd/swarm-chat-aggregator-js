@@ -26,13 +26,16 @@
     "start": "node dist/index.js",
     "lint": "eslint . --ext .ts --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "npm run lint -- --fix",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest"
   },
   "dependencies": {
-    "@solarpunkltd/swarm-chat-js": "^5.0.0",
     "@ethersphere/bee-js": "^9.0.3",
+    "@solarpunkltd/swarm-chat-js": "^5.0.0",
+    "@waku/sdk": "^0.0.34",
     "dotenv": "^16.4.7",
-    "p-queue": "^8.1.0"
+    "p-queue": "^8.1.0",
+    "protobufjs": "^7.5.4"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.0",
@@ -51,7 +54,8 @@
     "lint-staged": "^15.5.0",
     "prettier": "^2.8.8",
     "rimraf": "^6.0.1",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "vitest": "^3.2.4"
   },
   "files": [
     "dist",

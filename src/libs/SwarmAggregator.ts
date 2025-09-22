@@ -2,6 +2,8 @@ import { Bee, Bytes, FeedIndex, Identifier, PrivateKey, RedundancyLevel, Topic }
 import { MessageData, MessageStateRef, StatefulMessage } from '@solarpunkltd/swarm-chat-js';
 import PQueue from 'p-queue';
 
+import { encodeMessagePayload } from '../push/ProtoMessage.js';
+import { WakuPush } from '../push/WakuPush.js';
 import { DAY } from '../utils/constants.js';
 import { getEnvVariable } from '../utils/env.js';
 
@@ -40,10 +42,12 @@ export class SwarmAggregator {
   private readonly maxTopicStateAge = 2 * DAY;
   private readonly topicStateCleanupInterval = 1 * DAY;
   private readonly maxMessageStateSize = 10 * 1024 * 1024; // 10MB in bytes
+  private readonly wakuPush: WakuPush;
 
   constructor() {
     this.gsocBee = new Bee(GSOC_BEE_URL);
     this.chatBee = new Bee(CHAT_BEE_URL);
+    this.wakuPush = new WakuPush();
   }
 
   public subscribeToGsoc() {
@@ -190,12 +194,19 @@ export class SwarmAggregator {
       messageStateRefs: stateRefs && stateRefs.length > 0 ? stateRefs : null,
     };
 
-    const res = await feedWriter.uploadPayload(CHAT_STAMP, JSON.stringify(newData), {
-      index: topicState.index,
-    });
-
-    this.logger.info(`Feed write success on topic ${topicName}: ${res.reference}`);
-    topicState.index = topicState.index.next();
+    const mode = getEnvVariable('PUSH_MODE');
+    if (typeof mode === 'string' && mode.toLowerCase() === 'waku') {
+      // WAKU PUSH
+      const protobufPayload = await encodeMessagePayload(data, stateRefs || []);
+      this.wakuPush.publishMessage(protobufPayload);
+    } else {
+      // FEED WRITER
+      const res = await feedWriter.uploadPayload(CHAT_STAMP, JSON.stringify(newData), {
+        index: topicState.index,
+      });
+      this.logger.info(`Feed write success on topic ${topicName}: ${res.reference}`);
+      topicState.index = topicState.index.next();
+    }
   }
 
   private async handleMessageState(topicState: TopicState, message: MessageData): Promise<MessageStateRef[] | null> {
