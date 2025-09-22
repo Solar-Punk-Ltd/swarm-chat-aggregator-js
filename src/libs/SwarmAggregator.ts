@@ -1,5 +1,6 @@
 import { Bee, Bytes, FeedIndex, Identifier, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 import { MessageData, MessageStateRef, StatefulMessage } from '@solarpunkltd/swarm-chat-js';
+import { Encoder } from '@waku/sdk';
 import PQueue from 'p-queue';
 
 import { encodeMessagePayload } from '../push/ProtoMessage.js';
@@ -25,6 +26,7 @@ type TopicState = {
   initPromise: Promise<void>;
   messageState: MessageData[] | null;
   messageStateRefs: MessageStateRef[];
+  wakuEncoder: Encoder | null;
 };
 
 export class SwarmAggregator {
@@ -115,6 +117,7 @@ export class SwarmAggregator {
   }
 
   private createNewTopicState(topicName: string): TopicState {
+    const waku = getEnvVariable('WAKU').toLowerCase() === 'yes';
     return {
       index: FeedIndex.fromBigInt(BigInt(0)),
       queue: new PQueue({ concurrency: 1 }),
@@ -122,6 +125,7 @@ export class SwarmAggregator {
       initPromise: this.initializeTopic(topicName),
       messageState: null,
       messageStateRefs: [],
+      wakuEncoder: waku ? this.wakuPush.createWakuEncoder(topicName) : null,
     };
   }
 
@@ -194,18 +198,15 @@ export class SwarmAggregator {
       messageStateRefs: stateRefs && stateRefs.length > 0 ? stateRefs : null,
     };
 
-    const mode = getEnvVariable('PUSH_MODE');
-    if (typeof mode === 'string' && mode.toLowerCase() === 'waku') {
-      // WAKU PUSH
+    const res = await feedWriter.uploadPayload(CHAT_STAMP, JSON.stringify(newData), {
+      index: topicState.index,
+    });
+    this.logger.info(`Feed write success on topic ${topicName}: ${res.reference}`);
+    topicState.index = topicState.index.next();
+
+    if (topicState.wakuEncoder) {
       const protobufPayload = await encodeMessagePayload(data, stateRefs || []);
-      this.wakuPush.publishMessage(protobufPayload);
-    } else {
-      // FEED WRITER
-      const res = await feedWriter.uploadPayload(CHAT_STAMP, JSON.stringify(newData), {
-        index: topicState.index,
-      });
-      this.logger.info(`Feed write success on topic ${topicName}: ${res.reference}`);
-      topicState.index = topicState.index.next();
+      this.wakuPush.publishMessage(topicState.wakuEncoder, protobufPayload);
     }
   }
 

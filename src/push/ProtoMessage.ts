@@ -34,36 +34,3 @@ export async function encodeMessagePayload(messageData: MessageData, refs: Messa
   const payload = messagePayloadType.create(dataToEncode);
   return messagePayloadType.encode(payload).finish();
 }
-
-export async function decodeMessagePayload(
-  buffer: Uint8Array,
-): Promise<{ message: MessageData; messageStateRefs: MessageStateRef[] }> {
-  await initializeProtobuf();
-  if (!messagePayloadType) throw new Error('MessagePayload type not initialized');
-
-  const decoded = messagePayloadType.decode(buffer);
-  const obj = messagePayloadType.toObject(decoded, {
-    longs: Number,
-    enums: String,
-    bytes: String,
-  });
-
-  const typeMap = { 0: 'text', 1: 'thread', 2: 'reaction', TEXT: 'text', THREAD: 'thread', REACTION: 'reaction' };
-  let messageType = obj.message.type;
-
-  if (typeof messageType === 'number') {
-    messageType = typeMap[messageType as keyof typeof typeMap] || 'text';
-  } else if (typeof messageType === 'string') {
-    messageType = typeMap[messageType as keyof typeof typeMap] || messageType.toLowerCase();
-  }
-
-  const result = {
-    message: {
-      ...obj.message,
-      type: messageType,
-    } as MessageData,
-    messageStateRefs: (obj.messageStateRefs || []) as MessageStateRef[],
-  };
-
-  return result;
-}
