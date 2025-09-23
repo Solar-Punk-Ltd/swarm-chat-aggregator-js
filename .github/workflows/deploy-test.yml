@@ -41,6 +41,7 @@ jobs:
           echo "CHAT_BEE_URL=${{ secrets.CHAT_BEE_URL }}" >> .env
           echo "CHAT_KEY=${{ secrets.CHAT_KEY }}" >> .env
           echo "CHAT_STAMP=${{ secrets.CHAT_STAMP }}" >> .env
+          echo "WAKU=${{ secrets.WAKU }}" >> .env
         shell: bash
 
       - name: Stop and clean old project on VPS
