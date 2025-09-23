@@ -6,7 +6,7 @@ import PQueue from 'p-queue';
 import { encodeMessagePayload } from '../push/ProtoMessage.js';
 import { WakuPush } from '../push/WakuPush.js';
 import { DAY } from '../utils/constants.js';
-import { getEnvVariable } from '../utils/env.js';
+import { getBooleanEnvVariable, getEnvVariable } from '../utils/env.js';
 
 import { ErrorHandler } from './error.js';
 import { Logger } from './logger.js';
@@ -117,7 +117,7 @@ export class SwarmAggregator {
   }
 
   private createNewTopicState(topicName: string): TopicState {
-    const waku = getEnvVariable('WAKU').toLowerCase() === 'yes';
+    const waku = getBooleanEnvVariable('WAKU', false);
     return {
       index: FeedIndex.fromBigInt(BigInt(0)),
       queue: new PQueue({ concurrency: 1 }),
