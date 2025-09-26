@@ -195,13 +195,6 @@ export class SwarmAggregator {
 
   private async processMessageForTopic(topicName: string, topicState: TopicState, message: Bytes): Promise<void> {
     const data = message.toJSON() as MessageData;
-    const stateRefs = await this.handleMessageState(topicState, data);
-
-    const newData = {
-      message: data,
-      messageStateRefs: stateRefs && stateRefs.length > 0 ? stateRefs : null,
-    };
-
     const nodeInfo = await this.nodeManager.getRequiredChatNode(data?.additionalProps?.streamId);
 
     this.chatWriterBee = nodeInfo
@@ -211,6 +204,13 @@ export class SwarmAggregator {
           },
         })
       : new Bee(`${CHAT_BEE_URL}/write`);
+
+    const stateRefs = await this.handleMessageState(topicState, data);
+
+    const newData = {
+      message: data,
+      messageStateRefs: stateRefs && stateRefs.length > 0 ? stateRefs : null,
+    };
 
     const topic = Topic.fromString(topicName);
     const signer = new PrivateKey(CHAT_KEY);
