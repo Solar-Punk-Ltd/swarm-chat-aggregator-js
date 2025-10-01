@@ -5,3 +5,13 @@ export function getEnvVariable(name: string): string {
   }
   return value;
 }
+
+export function getBooleanEnvVariable(name: string, defaultValue: boolean = false): boolean {
+  const value = process.env[name];
+  if (!value) {
+    return defaultValue;
+  }
+
+  const normalizedValue = value.toLowerCase().trim();
+  return normalizedValue === 'true';
+}
