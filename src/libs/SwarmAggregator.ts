@@ -1,9 +1,12 @@
 import { Bee, Bytes, FeedIndex, Identifier, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 import { MessageData, MessageStateRef, StatefulMessage } from '@solarpunkltd/swarm-chat-js';
+import { Encoder } from '@waku/sdk';
 import PQueue from 'p-queue';
 
+import { encodeMessagePayload } from '../push/ProtoMessage.js';
+import { WakuPush } from '../push/WakuPush.js';
 import { DAY } from '../utils/constants.js';
-import { getEnvVariable } from '../utils/env.js';
+import { getBooleanEnvVariable, getEnvVariable } from '../utils/env.js';
 
 import { ErrorHandler } from './error.js';
 import { Logger } from './logger.js';
@@ -26,6 +29,7 @@ type TopicState = {
   initPromise: Promise<void>;
   messageState: MessageData[] | null;
   messageStateRefs: MessageStateRef[];
+  wakuEncoder: Encoder | null;
 };
 
 // TODO tech debt: make types optional for non gateway solutions
@@ -45,6 +49,7 @@ export class SwarmAggregator {
   private readonly maxTopicStateAge = 2 * DAY;
   private readonly topicStateCleanupInterval = 1 * DAY;
   private readonly maxMessageStateSize = 10 * 1024 * 1024; // 10MB in bytes
+  private readonly wakuPush: WakuPush;
 
   private readonly nodeManager = new NodeManager(CHAT_BEE_URL, NGINX_ADMIN_SECRET);
 
@@ -55,6 +60,7 @@ export class SwarmAggregator {
       },
     });
     this.chatReaderBee = new Bee(`${CHAT_BEE_URL}/read`);
+    this.wakuPush = new WakuPush();
   }
 
   public subscribeToGsoc() {
@@ -127,6 +133,7 @@ export class SwarmAggregator {
   }
 
   private createNewTopicState(topicName: string): TopicState {
+    const waku = getBooleanEnvVariable('WAKU', false);
     return {
       index: FeedIndex.fromBigInt(BigInt(0)),
       queue: new PQueue({ concurrency: 1 }),
@@ -134,6 +141,7 @@ export class SwarmAggregator {
       initPromise: this.initializeTopic(topicName),
       messageState: null,
       messageStateRefs: [],
+      wakuEncoder: waku ? this.wakuPush.createWakuEncoder(topicName) : null,
     };
   }
 
@@ -219,9 +227,13 @@ export class SwarmAggregator {
     const res = await feedWriter.uploadPayload(CHAT_STAMP, JSON.stringify(newData), {
       index: topicState.index,
     });
-
     this.logger.info(`Feed write success on topic ${topicName}: ${res.reference}`);
     topicState.index = topicState.index.next();
+
+    if (topicState.wakuEncoder) {
+      const protobufPayload = await encodeMessagePayload(data, stateRefs || []);
+      this.wakuPush.publishMessage(topicState.wakuEncoder, protobufPayload);
+    }
   }
 
   private async handleMessageState(topicState: TopicState, message: MessageData): Promise<MessageStateRef[] | null> {
