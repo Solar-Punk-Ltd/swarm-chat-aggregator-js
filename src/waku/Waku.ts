@@ -5,15 +5,34 @@ import { Logger } from '../libs/logger.js';
 import { WAKU_CLUSTER_ID } from '../utils/constants.js';
 
 export class Waku {
+  private static instance: Waku | null = null;
   private readonly logger = Logger.getInstance();
   private wakuNode: LightNode | null = null;
+  private initPromise: Promise<void> | null = null;
 
-  constructor() {
-    this.init();
+  private constructor() {}
+
+  public static getInstance(): Waku {
+    if (!Waku.instance) {
+      Waku.instance = new Waku();
+    }
+    return Waku.instance;
   }
 
-  private async init() {
-    this.wakuNode = await this.createWakuLightNode();
+  public async init(): Promise<void> {
+    if (this.wakuNode) {
+      return;
+    }
+
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    this.initPromise = this.createWakuLightNode().then((node) => {
+      this.wakuNode = node;
+    });
+
+    return this.initPromise;
   }
 
   /**

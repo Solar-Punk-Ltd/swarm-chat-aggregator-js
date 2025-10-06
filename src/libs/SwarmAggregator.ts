@@ -5,6 +5,7 @@ import PQueue from 'p-queue';
 import { DAY } from '../utils/constants.js';
 import { getBooleanEnvVariable, getEnvVariable } from '../utils/env.js';
 import { ProtoMessage } from '../waku/ProtoMessage.js';
+import { Waku } from '../waku/Waku.js';
 
 import { ErrorHandler } from './error.js';
 import { Logger } from './logger.js';
@@ -58,6 +59,17 @@ export class SwarmAggregator {
       },
     });
     this.chatReaderBee = new Bee(`${CHAT_BEE_URL}/read`);
+
+    if (IS_WAKU_ENABLED) {
+      Waku.getInstance()
+        .init()
+        .then(() => {
+          this.logger.info('Shared Waku node initialized successfully');
+        })
+        .catch((error) => {
+          this.logger.error('Failed to initialize shared Waku node:', error);
+        });
+    }
   }
 
   public subscribeToGsoc() {
@@ -120,7 +132,7 @@ export class SwarmAggregator {
     let topicState = this.topicStates.get(topicName);
 
     if (!topicState) {
-      topicState = this.createNewTopicState(topicName);
+      topicState = await this.createNewTopicState(topicName);
       this.topicStates.set(topicName, topicState);
     }
 
@@ -129,14 +141,16 @@ export class SwarmAggregator {
     return topicState;
   }
 
-  private createNewTopicState(topicName: string): TopicState {
+  private async createNewTopicState(topicName: string): Promise<TopicState> {
     let wakuPublish: ProtoMessage | null = null;
 
     if (IS_WAKU_ENABLED) {
       wakuPublish = new ProtoMessage(topicName);
-      wakuPublish.init().catch((err) => {
+      try {
+        await wakuPublish.init();
+      } catch (err) {
         this.logger.error(`Failed to initialize WakuPublish for topic ${topicName}:`, err);
-      });
+      }
     }
 
     return {
