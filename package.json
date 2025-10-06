@@ -22,7 +22,8 @@
   "author": "levente.kiss@solarpunk.buzz",
   "scripts": {
     "prepare": "husky",
-    "build": "rimraf dist && tsc",
+    "build": "rimraf dist && tsc && npm run copy-proto",
+    "copy-proto": "mkdir -p dist/waku && cp src/waku/message.proto dist/waku/",
     "start": "node dist/index.js",
     "lint": "eslint . --ext .ts --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "npm run lint -- --fix",
@@ -31,7 +32,7 @@
   },
   "dependencies": {
     "@ethersphere/bee-js": "^9.0.3",
-    "@solarpunkltd/swarm-chat-js": "^5.1.0",
+    "@solarpunkltd/swarm-chat-js": "^6.0.4",
     "axios": "^1.12.2",
     "@waku/sdk": "^0.0.34",
     "dotenv": "^16.4.7",

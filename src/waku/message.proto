@@ -18,6 +18,7 @@ message MessageData {
   uint32 index = 9;
   string chatTopic = 10;
   string userTopic = 11;
+  optional string additionalProps = 12;
 }
 
 message MessageStateRef {
@@ -29,3 +30,4 @@ message MessagePayload {
   MessageData message = 1;
   repeated MessageStateRef messageStateRefs = 2;
 }
+

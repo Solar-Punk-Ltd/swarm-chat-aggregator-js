@@ -1,12 +1,11 @@
 import { Bee, Bytes, FeedIndex, Identifier, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 import { MessageData, MessageStateRef, StatefulMessage } from '@solarpunkltd/swarm-chat-js';
-import { Encoder } from '@waku/sdk';
 import PQueue from 'p-queue';
 
-import { encodeMessagePayload } from '../push/ProtoMessage.js';
-import { WakuPush } from '../push/WakuPush.js';
 import { DAY } from '../utils/constants.js';
 import { getBooleanEnvVariable, getEnvVariable } from '../utils/env.js';
+import { ProtoMessage } from '../waku/ProtoMessage.js';
+import { Waku } from '../waku/Waku.js';
 
 import { ErrorHandler } from './error.js';
 import { Logger } from './logger.js';
@@ -21,6 +20,7 @@ const CHAT_KEY = getEnvVariable('CHAT_KEY');
 const CHAT_STAMP = getEnvVariable('CHAT_STAMP');
 
 const NGINX_ADMIN_SECRET = getEnvVariable('NGINX_ADMIN_SECRET');
+const IS_WAKU_ENABLED = getBooleanEnvVariable('IS_WAKU_ENABLED', false);
 
 type TopicState = {
   index: FeedIndex;
@@ -29,7 +29,7 @@ type TopicState = {
   initPromise: Promise<void>;
   messageState: MessageData[] | null;
   messageStateRefs: MessageStateRef[];
-  wakuEncoder: Encoder | null;
+  wakuPublish: ProtoMessage | null;
 };
 
 // TODO tech debt: make types optional for non gateway solutions
@@ -49,7 +49,6 @@ export class SwarmAggregator {
   private readonly maxTopicStateAge = 2 * DAY;
   private readonly topicStateCleanupInterval = 1 * DAY;
   private readonly maxMessageStateSize = 10 * 1024 * 1024; // 10MB in bytes
-  private readonly wakuPush: WakuPush;
 
   private readonly nodeManager = new NodeManager(CHAT_BEE_URL, NGINX_ADMIN_SECRET);
 
@@ -60,7 +59,17 @@ export class SwarmAggregator {
       },
     });
     this.chatReaderBee = new Bee(`${CHAT_BEE_URL}/read`);
-    this.wakuPush = new WakuPush();
+
+    if (IS_WAKU_ENABLED) {
+      Waku.getInstance()
+        .init()
+        .then(() => {
+          this.logger.info('Shared Waku node initialized successfully');
+        })
+        .catch((error) => {
+          this.logger.error('Failed to initialize shared Waku node:', error);
+        });
+    }
   }
 
   public subscribeToGsoc() {
@@ -123,7 +132,7 @@ export class SwarmAggregator {
     let topicState = this.topicStates.get(topicName);
 
     if (!topicState) {
-      topicState = this.createNewTopicState(topicName);
+      topicState = await this.createNewTopicState(topicName);
       this.topicStates.set(topicName, topicState);
     }
 
@@ -132,8 +141,18 @@ export class SwarmAggregator {
     return topicState;
   }
 
-  private createNewTopicState(topicName: string): TopicState {
-    const waku = getBooleanEnvVariable('WAKU', false);
+  private async createNewTopicState(topicName: string): Promise<TopicState> {
+    let wakuPublish: ProtoMessage | null = null;
+
+    if (IS_WAKU_ENABLED) {
+      wakuPublish = new ProtoMessage(topicName);
+      try {
+        await wakuPublish.init();
+      } catch (err) {
+        this.logger.error(`Failed to initialize WakuPublish for topic ${topicName}:`, err);
+      }
+    }
+
     return {
       index: FeedIndex.fromBigInt(BigInt(0)),
       queue: new PQueue({ concurrency: 1 }),
@@ -141,7 +160,7 @@ export class SwarmAggregator {
       initPromise: this.initializeTopic(topicName),
       messageState: null,
       messageStateRefs: [],
-      wakuEncoder: waku ? this.wakuPush.createWakuEncoder(topicName) : null,
+      wakuPublish,
     };
   }
 
@@ -230,9 +249,8 @@ export class SwarmAggregator {
     this.logger.info(`Feed write success on topic ${topicName}: ${res.reference}`);
     topicState.index = topicState.index.next();
 
-    if (topicState.wakuEncoder) {
-      const protobufPayload = await encodeMessagePayload(data, stateRefs || []);
-      this.wakuPush.publishMessage(topicState.wakuEncoder, protobufPayload);
+    if (topicState.wakuPublish) {
+      await topicState.wakuPublish.publishMessageUpdate(data, stateRefs || []);
     }
   }
 
