@@ -1,16 +1,16 @@
 import { createHash } from 'crypto';
 import { describe, expect, it } from 'vitest';
 
-import { WakuPush } from '../src/push/WakuPush';
 import { WAKU_CLUSTER_ID } from '../src/utils/constants';
+import { Waku } from '../src/waku/Waku';
 
-describe('WakuPush - createWakuEncoder', () => {
-  const wakuPush = new WakuPush();
+describe('Waku - createWakuEncoder', () => {
+  const waku = new Waku();
 
   describe('shardId calculation', () => {
     it('should calculate shardId correctly from topic name hash', () => {
       const topicName = 'general-chat';
-      const encoder = wakuPush.createWakuEncoder(topicName);
+      const encoder = waku.createWakuEncoder(topicName);
 
       // Calculate expected shardId using the same algorithm
       const hash = createHash('sha256').update(topicName).digest('hex');
@@ -37,7 +37,7 @@ describe('WakuPush - createWakuEncoder', () => {
       ];
 
       testTopics.forEach((topicName) => {
-        const encoder = wakuPush.createWakuEncoder(topicName);
+        const encoder = waku.createWakuEncoder(topicName);
         const shardId = encoder.routingInfo?.shardId;
 
         expect(shardId).toBeGreaterThanOrEqual(0);
@@ -49,9 +49,9 @@ describe('WakuPush - createWakuEncoder', () => {
     it('should produce consistent shardId for the same topic', () => {
       const topicName = 'consistent-topic';
 
-      const encoder1 = wakuPush.createWakuEncoder(topicName);
-      const encoder2 = wakuPush.createWakuEncoder(topicName);
-      const encoder3 = wakuPush.createWakuEncoder(topicName);
+      const encoder1 = waku.createWakuEncoder(topicName);
+      const encoder2 = waku.createWakuEncoder(topicName);
+      const encoder3 = waku.createWakuEncoder(topicName);
 
       expect(encoder1.routingInfo?.shardId).toBe(encoder2.routingInfo?.shardId);
       expect(encoder2.routingInfo?.shardId).toBe(encoder3.routingInfo?.shardId);
@@ -59,7 +59,7 @@ describe('WakuPush - createWakuEncoder', () => {
 
     it('should produce different shardIds for different topics (distribution test)', () => {
       const topics = Array.from({ length: 50 }, (_, i) => `topic-${i}`);
-      const shardIds = topics.map((topic) => wakuPush.createWakuEncoder(topic).routingInfo?.shardId);
+      const shardIds = topics.map((topic) => waku.createWakuEncoder(topic).routingInfo?.shardId);
 
       // Check that we get some variety in shardIds (not all the same)
       const uniqueShardIds = new Set(shardIds);
@@ -82,7 +82,7 @@ describe('WakuPush - createWakuEncoder', () => {
       ];
 
       edgeCases.forEach((topicName) => {
-        const encoder = wakuPush.createWakuEncoder(topicName);
+        const encoder = waku.createWakuEncoder(topicName);
         const shardId = encoder.routingInfo?.shardId;
 
         expect(shardId).toBeGreaterThanOrEqual(0);
@@ -95,26 +95,26 @@ describe('WakuPush - createWakuEncoder', () => {
   describe('encoder configuration', () => {
     it('should set correct contentTopic format', () => {
       const topicName = 'test-topic';
-      const encoder = wakuPush.createWakuEncoder(topicName);
+      const encoder = waku.createWakuEncoder(topicName);
 
       expect(encoder.contentTopic).toBe(`solarpunk-msrs/1/${topicName}/proto`);
     });
 
     it('should set ephemeral to true', () => {
-      const encoder = wakuPush.createWakuEncoder('test-topic');
+      const encoder = waku.createWakuEncoder('test-topic');
       expect(encoder.ephemeral).toBe(true);
     });
 
     it('should set correct pubsubTopic format', () => {
       const topicName = 'test-topic';
-      const encoder = wakuPush.createWakuEncoder(topicName);
+      const encoder = waku.createWakuEncoder(topicName);
 
       const expectedShardId = encoder.routingInfo?.shardId;
       expect(encoder.routingInfo?.pubsubTopic).toBe(`/waku/2/rs/${WAKU_CLUSTER_ID}/${expectedShardId}`);
     });
 
     it('should set correct clusterId', () => {
-      const encoder = wakuPush.createWakuEncoder('test-topic');
+      const encoder = waku.createWakuEncoder('test-topic');
       expect(encoder.routingInfo?.clusterId).toBe(WAKU_CLUSTER_ID);
     });
   });
@@ -134,7 +134,7 @@ describe('WakuPush - createWakuEncoder', () => {
       ];
 
       testCases.forEach(({ topic, expectedHash }) => {
-        const encoder = wakuPush.createWakuEncoder(topic);
+        const encoder = waku.createWakuEncoder(topic);
 
         // Verify our calculation matches the implementation
         const hashInt = BigInt('0x' + expectedHash);
@@ -147,7 +147,7 @@ describe('WakuPush - createWakuEncoder', () => {
     it('should handle BigInt overflow correctly', () => {
       // Test with a topic that might produce a very large hash
       const largeHashTopic = 'topic-that-produces-large-hash-value-for-testing-bigint-handling';
-      const encoder = wakuPush.createWakuEncoder(largeHashTopic);
+      const encoder = waku.createWakuEncoder(largeHashTopic);
 
       // Should still produce valid shardId despite large hash
       const shardId = encoder.routingInfo?.shardId;
