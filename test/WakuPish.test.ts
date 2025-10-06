@@ -5,7 +5,7 @@ import { WAKU_CLUSTER_ID } from '../src/utils/constants';
 import { Waku } from '../src/waku/Waku';
 
 describe('Waku - createWakuEncoder', () => {
-  const waku = new Waku();
+  const waku = Waku.getInstance();
 
   describe('shardId calculation', () => {
     it('should calculate shardId correctly from topic name hash', () => {

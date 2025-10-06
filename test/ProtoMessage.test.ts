@@ -26,8 +26,9 @@ vi.mock('protobufjs', () => ({
   }),
 }));
 
-vi.mock('../src/waku/Waku', () => ({
-  Waku: vi.fn().mockImplementation(() => ({
+vi.mock('../src/waku/Waku', () => {
+  const mockWakuInstance = {
+    init: vi.fn().mockResolvedValue(undefined),
     createWakuEncoder: vi.fn().mockReturnValue({
       contentTopic: 'test-topic',
       ephemeral: true,
@@ -36,8 +37,14 @@ vi.mock('../src/waku/Waku', () => ({
     getNode: vi.fn().mockReturnValue({
       isStarted: true,
     }),
-  })),
-}));
+  };
+
+  return {
+    Waku: {
+      getInstance: vi.fn().mockReturnValue(mockWakuInstance),
+    },
+  };
+});
 
 vi.mock('../src/libs/logger', () => ({
   Logger: {

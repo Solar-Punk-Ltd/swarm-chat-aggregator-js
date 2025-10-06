@@ -16,25 +16,27 @@ type Type = protobuf.Type;
 export class ProtoMessage {
   private logger = Logger.getInstance();
 
-  private wakuPush: Waku;
+  private waku: Waku;
   private encoder: Encoder | null = null;
 
   private protoRoot: Root | null = null;
   private messagePayloadType: Type | null = null;
 
   constructor(private streamTopic: string) {
-    this.wakuPush = new Waku();
+    this.waku = Waku.getInstance();
   }
 
   public async init(): Promise<void> {
+    await this.waku.init();
+
     // Load protobuf definitions
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    this.protoRoot = await load(path.join(__dirname, '../proto/message.proto'));
+    this.protoRoot = await load(path.join(__dirname, './message.proto'));
     this.protoRoot.resolveAll();
     this.messagePayloadType = this.protoRoot.lookupType('MessagePayload');
 
     const wakuTopic = this.streamTopic;
-    this.encoder = this.wakuPush.createWakuEncoder(wakuTopic);
+    this.encoder = this.waku.createWakuEncoder(wakuTopic);
 
     this.logger.info(`WakuPublish initialized for stream: ${wakuTopic}`);
   }
@@ -49,6 +51,10 @@ export class ProtoMessage {
       message: {
         ...messageData,
         type: typeMap[messageData.type as keyof typeof typeMap] ?? 0,
+        additionalProps:
+          messageData.additionalProps && typeof messageData.additionalProps === 'object'
+            ? JSON.stringify(messageData.additionalProps)
+            : messageData.additionalProps,
       },
       messageStateRefs: refs,
     };
@@ -56,7 +62,7 @@ export class ProtoMessage {
     const payload = this.messagePayloadType.create(dataToEncode);
     const encodedPayload = this.messagePayloadType.encode(payload).finish();
 
-    await this.wakuPush.publishMessage(this.encoder, new Uint8Array(encodedPayload));
+    await this.waku.publishMessage(this.encoder, new Uint8Array(encodedPayload));
 
     this.logger.info(`Published message update with ${refs.length} state refs`);
   }
