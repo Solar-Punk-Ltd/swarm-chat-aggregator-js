@@ -4,7 +4,7 @@ import { createHash } from 'crypto';
 import { Logger } from '../libs/logger.js';
 import { WAKU_CLUSTER_ID } from '../utils/constants.js';
 
-export class WakuPush {
+export class Waku {
   private readonly logger = Logger.getInstance();
   private wakuNode: LightNode | null = null;
 
