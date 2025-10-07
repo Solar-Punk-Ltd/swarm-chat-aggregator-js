@@ -4,7 +4,7 @@
   "description": "Node.js service for aggregating Swarm chat messages (GSOC project)",
   "license": "Apache-2.0",
   "type": "module",
-  "node": ">=18",
+  "node": ">=22",
   "keywords": [
     "swarm",
     "js",
