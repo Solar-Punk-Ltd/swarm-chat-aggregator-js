@@ -31,7 +31,6 @@ export class ProtoMessage {
   public async init(): Promise<void> {
     await this.waku.init();
 
-    const __dirname = path.dirname(fileURLToPath(import.meta.url));
     this.protoRoot = await load(this.protoPath);
     this.protoRoot.resolveAll();
     this.messagePayloadType = this.protoRoot.lookupType('MessagePayload');
