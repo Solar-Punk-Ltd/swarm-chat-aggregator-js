@@ -67,7 +67,7 @@ export class SwarmAggregator {
           this.logger.info('Shared Waku node initialized successfully');
         })
         .catch((error) => {
-          this.logger.error('Failed to initialize shared Waku node:', error);
+          this.errorHandler.handleError(error, 'WakuInit');
         });
     }
   }
