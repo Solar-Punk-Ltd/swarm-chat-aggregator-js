@@ -22,8 +22,6 @@ export class ProtoMessage {
   private protoRoot: Root | null = null;
   private messagePayloadType: Type | null = null;
 
-  private readonly protoPath = path.join(__dirname, './message.proto');
-
   constructor(private streamTopic: string) {
     this.waku = Waku.getInstance();
   }
@@ -31,7 +29,8 @@ export class ProtoMessage {
   public async init(): Promise<void> {
     await this.waku.init();
 
-    this.protoRoot = await load(this.protoPath);
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    this.protoRoot = await load(path.join(__dirname, './message.proto'));
     this.protoRoot.resolveAll();
     this.messagePayloadType = this.protoRoot.lookupType('MessagePayload');
 
