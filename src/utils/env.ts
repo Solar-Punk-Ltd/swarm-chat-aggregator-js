@@ -15,3 +15,7 @@ export function getBooleanEnvVariable(name: string, defaultValue: boolean = fals
   const normalizedValue = value.toLowerCase().trim();
   return normalizedValue === 'true';
 }
+
+export function getOptionalEnvVariable(name: string): string | undefined {
+  return process.env[name];
+}
