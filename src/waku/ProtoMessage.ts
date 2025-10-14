@@ -26,6 +26,10 @@ export class ProtoMessage {
     this.waku = Waku.getInstance();
   }
 
+  public getWaku(): Waku {
+    return this.waku;
+  }
+
   public async init(): Promise<void> {
     await this.waku.init();
 
