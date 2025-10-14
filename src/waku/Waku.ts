@@ -169,6 +169,11 @@ export class Waku {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
+        // experimental - network testing
+        await node.lightPush.send(encoder, { payload });
+        await node.lightPush.send(encoder, { payload });
+        await node.lightPush.send(encoder, { payload });
+        await node.lightPush.send(encoder, { payload });
         await node.lightPush.send(encoder, { payload });
 
         this.consecutiveSendFailures = 0;
@@ -188,10 +193,118 @@ export class Waku {
     throw new Error(`Failed to publish message after ${maxRetries} attempts: ${lastError?.message}`);
   }
 
+  public async getNodeInfo(): Promise<any> {
+    if (!this.wakuNode) {
+      return {
+        status: 'not_initialized',
+        error: 'Waku node not initialized',
+      };
+    }
+
+    try {
+      const peers = await this.wakuNode.getConnectedPeers();
+      const isStarted = this.wakuNode.isStarted();
+
+      // Get connection manager info
+      const connections = this.wakuNode.libp2p.getConnections();
+
+      return {
+        status: isStarted ? 'running' : 'stopped',
+        nodeId: this.wakuNode.libp2p.peerId.toString(),
+        isStarted,
+        timestamp: new Date().toISOString(),
+
+        // Peer information
+        peers: {
+          total: peers.length,
+          connected: peers.map((peer) => ({
+            id: peer.id.toString(),
+            protocols: Array.from(peer.protocols || []),
+          })),
+        },
+
+        // Connection information
+        connections: {
+          total: connections.length,
+          details: connections.map((conn) => ({
+            remotePeer: conn.remotePeer.toString(),
+            status: conn.status,
+            direction: conn.direction,
+            timeline: {
+              open: conn.timeline.open,
+              upgraded: conn.timeline.upgraded,
+            },
+            streams: conn.streams.map((stream) => ({
+              direction: stream.direction,
+              protocol: stream.protocol,
+              timeline: stream.timeline,
+            })),
+          })),
+        },
+
+        // Network configuration
+        networkConfig: {
+          clusterId: WAKU_CLUSTER_ID,
+          numShardsInCluster: 8,
+        },
+
+        // Node configuration
+        config: {
+          staticPeer: WAKU_STATIC_PEER || null,
+          defaultBootstrap: !WAKU_STATIC_PEER,
+        },
+
+        // Performance metrics
+        metrics: {
+          consecutiveFailures: this.consecutiveSendFailures,
+          uptime: isStarted ? Date.now() - (this.wakuNode.libp2p.status === 'started' ? 0 : Date.now()) : null,
+        },
+
+        // libp2p detailed info
+        libp2p: {
+          peerId: this.wakuNode.libp2p.peerId.toString(),
+          status: this.wakuNode.libp2p.status,
+          multiaddrs: this.wakuNode.libp2p.getMultiaddrs().map((ma) => ma.toString()),
+          protocols: this.wakuNode.libp2p.getProtocols(),
+          components: {
+            hasPeerStore: !!this.wakuNode.libp2p.peerStore,
+            hasContentRouting: !!this.wakuNode.libp2p.contentRouting,
+            hasPeerRouting: !!this.wakuNode.libp2p.peerRouting,
+          },
+        },
+
+        // Waku protocol info
+        waku: {
+          protocols: {
+            lightPush: !!this.wakuNode.lightPush,
+            filter: !!this.wakuNode.filter,
+          },
+        },
+      };
+    } catch (error) {
+      this.errorHandler.handleError(error, 'Waku.getNodeInfo');
+      return {
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  public async restart(): Promise<void> {
+    this.logger.info('Restarting Waku node...');
+    await this.reinitialize();
+    this.logger.info('Waku node restarted successfully');
+  }
+
   public async cleanup(): Promise<void> {
     if (this.wakuNode) {
-      await this.wakuNode.stop();
+      try {
+        await this.wakuNode.stop();
+      } catch (error) {
+        this.errorHandler.handleError(error, 'WakuCleanup');
+      }
       this.wakuNode = null;
+      this.initPromise = null;
     }
   }
 }

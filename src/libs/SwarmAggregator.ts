@@ -353,4 +353,33 @@ export class SwarmAggregator {
 
     this.logger.info(`Message cache pruned. Kept last ${this.minCacheSize} entries.`);
   }
+
+  public async getWakuInfo(): Promise<any> {
+    try {
+      if (!IS_WAKU_ENABLED) {
+        return { status: 'disabled', message: 'Waku is not enabled' };
+      }
+
+      const wakuInstance = Waku.getInstance();
+      return await wakuInstance.getNodeInfo();
+    } catch (error) {
+      this.errorHandler.handleError(error, 'SwarmAggregator.getWakuInfo');
+      return { status: 'error', error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  public async restartWaku(): Promise<void> {
+    try {
+      if (!IS_WAKU_ENABLED) {
+        throw new Error('Waku is not enabled');
+      }
+
+      const wakuInstance = Waku.getInstance();
+      await wakuInstance.restart();
+      this.logger.info('Waku node restarted via API');
+    } catch (error) {
+      this.errorHandler.handleError(error, 'SwarmAggregator.restartWaku');
+      throw error;
+    }
+  }
 }
