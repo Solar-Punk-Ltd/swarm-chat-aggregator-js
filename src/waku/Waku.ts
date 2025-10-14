@@ -71,7 +71,7 @@ export class Waku {
     await node.start();
     this.logger.info('Waku Light Node started');
 
-    await node.waitForPeers([Protocols.LightPush, Protocols.Filter], 30000);
+    await node.waitForPeers([Protocols.LightPush], 30000);
 
     this.logger.info('Connected to peers supporting LightPush');
     this.logger.info('Node ID:', node.libp2p.peerId.toString());
