@@ -49,11 +49,9 @@ export class ProtoMessage {
       throw new Error('WakuPublish not initialized');
     }
 
-    const typeMap = { text: 0, thread: 1, reaction: 2 };
     const dataToEncode = {
       message: {
         ...messageData,
-        type: typeMap[messageData.type as keyof typeof typeMap] ?? 0,
         additionalProps:
           messageData.additionalProps && typeof messageData.additionalProps === 'object'
             ? JSON.stringify(messageData.additionalProps)
