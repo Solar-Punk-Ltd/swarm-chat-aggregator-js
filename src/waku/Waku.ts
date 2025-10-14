@@ -155,7 +155,7 @@ export class Waku {
     return createEncoder({
       contentTopic,
       routingInfo,
-      ephemeral: true,
+      ephemeral: false,
     });
   }
 
@@ -169,11 +169,6 @@ export class Waku {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        // experimental - network testing
-        await node.lightPush.send(encoder, { payload });
-        await node.lightPush.send(encoder, { payload });
-        await node.lightPush.send(encoder, { payload });
-        await node.lightPush.send(encoder, { payload });
         await node.lightPush.send(encoder, { payload });
 
         this.consecutiveSendFailures = 0;
