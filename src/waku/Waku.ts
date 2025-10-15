@@ -53,7 +53,6 @@ export class Waku {
   private async createWakuLightNode(): Promise<LightNode> {
     const networkConfig = {
       clusterId: WAKU_CLUSTER_ID,
-      numShardsInCluster: 8,
     };
 
     const node = await createLightNode({
@@ -146,7 +145,6 @@ export class Waku {
   public createWakuEncoder(topicName: string): Encoder {
     const networkConfig = {
       clusterId: WAKU_CLUSTER_ID,
-      numShardsInCluster: 8,
     };
 
     const contentTopic = `/solarpunk-msrs/1/${topicName}/proto`;
