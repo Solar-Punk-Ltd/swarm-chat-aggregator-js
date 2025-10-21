@@ -2,14 +2,13 @@ import { Bee, Bytes, FeedIndex, Identifier, PrivateKey, RedundancyLevel, Topic }
 import { MessageData, MessageStateRef, StatefulMessage } from '@solarpunkltd/swarm-chat-js';
 import PQueue from 'p-queue';
 
+import { getBooleanEnvVariable, getEnvVariable } from '../utils/common.js';
 import { DAY } from '../utils/constants.js';
-import { getBooleanEnvVariable, getEnvVariable } from '../utils/env.js';
-import { ProtoMessage } from '../waku/ProtoMessage.js';
-import { Waku } from '../waku/Waku.js';
 
 import { ErrorHandler } from './error.js';
 import { Logger } from './logger.js';
 import { NodeManager } from './NodeManager.js';
+import { WakuHandler } from './Waku.js';
 
 const GSOC_BEE_URL = getEnvVariable('GSOC_BEE_URL');
 const GSOC_RESOURCE_ID = getEnvVariable('GSOC_RESOURCE_ID');
@@ -29,7 +28,6 @@ type TopicState = {
   initPromise: Promise<void>;
   messageState: MessageData[] | null;
   messageStateRefs: MessageStateRef[];
-  wakuPublish: ProtoMessage | null;
 };
 
 // TODO tech debt: make types optional for non gateway solutions
@@ -61,7 +59,7 @@ export class SwarmAggregator {
     this.chatReaderBee = new Bee(`${CHAT_BEE_URL}/read`);
 
     if (IS_WAKU_ENABLED) {
-      Waku.getInstance()
+      WakuHandler.getInstance()
         .init()
         .then(() => {
           this.logger.info('Shared Waku node initialized successfully');
@@ -142,17 +140,6 @@ export class SwarmAggregator {
   }
 
   private async createNewTopicState(topicName: string): Promise<TopicState> {
-    let wakuPublish: ProtoMessage | null = null;
-
-    if (IS_WAKU_ENABLED) {
-      wakuPublish = new ProtoMessage(topicName);
-      try {
-        await wakuPublish.init();
-      } catch (err) {
-        this.logger.error(`Failed to initialize WakuPublish for topic ${topicName}:`, err);
-      }
-    }
-
     return {
       index: FeedIndex.fromBigInt(BigInt(0)),
       queue: new PQueue({ concurrency: 1 }),
@@ -160,7 +147,6 @@ export class SwarmAggregator {
       initPromise: this.initializeTopic(topicName),
       messageState: null,
       messageStateRefs: [],
-      wakuPublish,
     };
   }
 
@@ -249,8 +235,8 @@ export class SwarmAggregator {
     this.logger.info(`Feed write success on topic ${topicName}: ${res.reference}`);
     topicState.index = topicState.index.next();
 
-    if (topicState.wakuPublish) {
-      await topicState.wakuPublish.publishMessageUpdate(data, stateRefs || []);
+    if (IS_WAKU_ENABLED) {
+      await WakuHandler.getInstance().publishMessageUpdate(topicName, data, stateRefs || []);
     }
   }
 
@@ -315,11 +301,19 @@ export class SwarmAggregator {
 
   private cleanupInactiveTopics(): void {
     const now = Date.now();
+    const inactiveTopics: string[] = [];
+
     for (const [topic, state] of this.topicStates) {
       if (now - state.lastUsed > this.maxTopicStateAge) {
         this.logger.info(`Removing inactive topic queue: ${topic}`);
+        inactiveTopics.push(topic);
         this.topicStates.delete(topic);
       }
+    }
+
+    if (inactiveTopics.length > 0) {
+      const wakuHandler = WakuHandler.getInstance();
+      wakuHandler.cleanupSpecificTopics(inactiveTopics);
     }
   }
 
@@ -352,34 +346,5 @@ export class SwarmAggregator {
     }
 
     this.logger.info(`Message cache pruned. Kept last ${this.minCacheSize} entries.`);
-  }
-
-  public async getWakuInfo(): Promise<any> {
-    try {
-      if (!IS_WAKU_ENABLED) {
-        return { status: 'disabled', message: 'Waku is not enabled' };
-      }
-
-      const wakuInstance = Waku.getInstance();
-      return await wakuInstance.getNodeInfo();
-    } catch (error) {
-      this.errorHandler.handleError(error, 'SwarmAggregator.getWakuInfo');
-      return { status: 'error', error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }
-
-  public async restartWaku(): Promise<void> {
-    try {
-      if (!IS_WAKU_ENABLED) {
-        throw new Error('Waku is not enabled');
-      }
-
-      const wakuInstance = Waku.getInstance();
-      await wakuInstance.restart();
-      this.logger.info('Waku node restarted via API');
-    } catch (error) {
-      this.errorHandler.handleError(error, 'SwarmAggregator.restartWaku');
-      throw error;
-    }
   }
 }
