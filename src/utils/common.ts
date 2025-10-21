@@ -1,3 +1,13 @@
+export function sleep(delay: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delay);
+  });
+}
+
+export function getShortMessageId(messageId: string): string {
+  return messageId.substring(0, 12);
+}
+
 export function getEnvVariable(name: string): string {
   const value = process.env[name];
   if (!value) {
