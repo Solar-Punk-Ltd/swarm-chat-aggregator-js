@@ -6,11 +6,25 @@ import 'dotenv/config';
 import { ErrorHandler } from './libs/error.js';
 import { Logger } from './libs/logger.js';
 import { SwarmAggregator } from './libs/SwarmAggregator.js';
+import { WakuHandler } from './libs/Waku.js';
+import { getBooleanEnvVariable } from './utils/common.js';
+
+const IS_WAKU_ENABLED = getBooleanEnvVariable('IS_WAKU_ENABLED', false);
 
 async function main() {
-  const aggregator = new SwarmAggregator();
   const errorHandler = ErrorHandler.getInstance();
   const logger = Logger.getInstance();
+
+  if (IS_WAKU_ENABLED) {
+    try {
+      await WakuHandler.getInstance().initializeNode();
+    } catch (error) {
+      errorHandler.handleError(error, 'WakuInit');
+    }
+  }
+
+  const aggregator = new SwarmAggregator();
+
   let gsocSubscription: GsocSubscription;
 
   logger.info('[SwarmAggregator] Starting');
