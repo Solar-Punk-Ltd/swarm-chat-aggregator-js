@@ -57,17 +57,6 @@ export class SwarmAggregator {
       },
     });
     this.chatReaderBee = new Bee(`${CHAT_BEE_URL}/read`);
-
-    if (IS_WAKU_ENABLED) {
-      WakuHandler.getInstance()
-        .init()
-        .then(() => {
-          this.logger.info('Shared Waku node initialized successfully');
-        })
-        .catch((error) => {
-          this.errorHandler.handleError(error, 'WakuInit');
-        });
-    }
   }
 
   public subscribeToGsoc() {

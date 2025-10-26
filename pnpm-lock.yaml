@@ -12,11 +12,11 @@ importers:
         specifier: ^9.0.3
         version: 9.8.1
       '@solarpunkltd/swarm-chat-js':
-        specifier: ^6.0.6
-        version: 6.0.6(@multiformats/multiaddr@12.5.1)
-      '@waku/sdk':
-        specifier: ^0.0.35
-        version: 0.0.35(@multiformats/multiaddr@12.5.1)
+        specifier: ^6.1.7
+        version: 6.1.7(@multiformats/multiaddr@12.5.1)
+      '@solarpunkltd/waku-sdk':
+        specifier: ^0.0.38
+        version: 0.0.38(@multiformats/multiaddr@12.5.1)
       '@waku/utils':
         specifier: ^0.0.27
         version: 0.0.27
@@ -669,8 +669,12 @@ packages:
     resolution: {integrity: sha512-KV321z5m/0nuAg83W1dPLy85HpHDk7Sdi4fJbwvacWsEhAh+rZUW4ZfGcXmUIvjZg4ss2bcwNlRhJ7GBEUG08w==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
-  '@solarpunkltd/swarm-chat-js@6.0.6':
-    resolution: {integrity: sha512-PrH89bVRIi+xWN7S5SfFTKdJSBY+RcSh263GQCYYr8oAMQH1Ee9SuxI/Si4pwRqRZnCnasoyGoKHC5rUg+/onA==}
+  '@solarpunkltd/swarm-chat-js@6.1.7':
+    resolution: {integrity: sha512-7/MHX9ERaab4XYi8CWRO2PVrGVsKEYXfzo2C33jJrWSCmDIRGlVLhmKlPxvf9ziyT//TQzSvL/DXLlv3MXgV9w==}
+
+  '@solarpunkltd/waku-sdk@0.0.38':
+    resolution: {integrity: sha512-xCMb6tWF8S3Jp0gLbW54B4h14Bah453BH+vF3OooRIKM5mkRJ/Sjj6sLVRWnEeOAmnVqDTYaj0F1XcS6zXIavA==}
+    engines: {node: '>=22'}
 
   '@tybys/wasm-util@0.10.1':
     resolution: {integrity: sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==}
@@ -927,10 +931,6 @@ packages:
 
   '@waku/proto@0.0.14':
     resolution: {integrity: sha512-8zKVHrKzzKQfZBVnpSmJ6G8H1Zd4Gqms1tj3L6K2WCE/NQDR8wJtFwziab3dJ/5rKUTjfPAWFJ57RN97ltzxGA==}
-    engines: {node: '>=22'}
-
-  '@waku/sdk@0.0.35':
-    resolution: {integrity: sha512-bnXl5b8BDCOKSrJ7V6PiJshc3bsBWaGweWy20IsGlXalCJj7257wK31lZxEP62lTFKHS8tPfG+EvDwrPK4oxKA==}
     engines: {node: '>=22'}
 
   '@waku/sds@0.0.7':
@@ -3603,15 +3603,39 @@ snapshots:
 
   '@sindresorhus/fnv1a@3.1.0': {}
 
-  '@solarpunkltd/swarm-chat-js@6.0.6(@multiformats/multiaddr@12.5.1)':
+  '@solarpunkltd/swarm-chat-js@6.1.7(@multiformats/multiaddr@12.5.1)':
     dependencies:
       '@ethersphere/bee-js': 9.8.1
-      '@waku/sdk': 0.0.35(@multiformats/multiaddr@12.5.1)
+      '@solarpunkltd/waku-sdk': 0.0.38(@multiformats/multiaddr@12.5.1)
       '@waku/utils': 0.0.27
       cafe-utility: 27.18.0
       protobufjs: 7.5.4
       uuid: 11.1.0
       zod: 3.25.76
+    transitivePeerDependencies:
+      - '@multiformats/multiaddr'
+      - bufferutil
+      - supports-color
+      - utf-8-validate
+
+  '@solarpunkltd/waku-sdk@0.0.38(@multiformats/multiaddr@12.5.1)':
+    dependencies:
+      '@chainsafe/libp2p-noise': 16.1.3
+      '@libp2p/bootstrap': 11.0.42
+      '@libp2p/identify': 3.0.36
+      '@libp2p/mplex': 11.0.42
+      '@libp2p/ping': 2.0.35
+      '@libp2p/websockets': 9.2.16
+      '@noble/hashes': 1.8.0
+      '@types/lodash.debounce': 4.0.9
+      '@waku/core': 0.0.39(@multiformats/multiaddr@12.5.1)(libp2p@2.8.11)
+      '@waku/discovery': 0.0.12(@multiformats/multiaddr@12.5.1)(libp2p@2.8.11)
+      '@waku/interfaces': 0.0.34
+      '@waku/proto': 0.0.14
+      '@waku/sds': 0.0.7
+      '@waku/utils': 0.0.27
+      libp2p: 2.8.11
+      lodash.debounce: 4.0.8
     transitivePeerDependencies:
       - '@multiformats/multiaddr'
       - bufferutil
@@ -3901,30 +3925,6 @@ snapshots:
   '@waku/proto@0.0.14':
     dependencies:
       protons-runtime: 5.6.0
-
-  '@waku/sdk@0.0.35(@multiformats/multiaddr@12.5.1)':
-    dependencies:
-      '@chainsafe/libp2p-noise': 16.1.3
-      '@libp2p/bootstrap': 11.0.42
-      '@libp2p/identify': 3.0.36
-      '@libp2p/mplex': 11.0.42
-      '@libp2p/ping': 2.0.35
-      '@libp2p/websockets': 9.2.16
-      '@noble/hashes': 1.8.0
-      '@types/lodash.debounce': 4.0.9
-      '@waku/core': 0.0.39(@multiformats/multiaddr@12.5.1)(libp2p@2.8.11)
-      '@waku/discovery': 0.0.12(@multiformats/multiaddr@12.5.1)(libp2p@2.8.11)
-      '@waku/interfaces': 0.0.34
-      '@waku/proto': 0.0.14
-      '@waku/sds': 0.0.7
-      '@waku/utils': 0.0.27
-      libp2p: 2.8.11
-      lodash.debounce: 4.0.8
-    transitivePeerDependencies:
-      - '@multiformats/multiaddr'
-      - bufferutil
-      - supports-color
-      - utf-8-validate
 
   '@waku/sds@0.0.7':
     dependencies:

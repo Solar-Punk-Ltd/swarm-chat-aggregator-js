@@ -1,13 +1,13 @@
 import { MessageData, MessageStateRef } from '@solarpunkltd/swarm-chat-js';
-import { createLightNode, HealthStatus, type LightNode, ReliableChannel, WakuEvent } from '@waku/sdk';
+import { createLightNode, HealthStatus, type LightNode, ReliableChannel, WakuEvent } from '@solarpunkltd/waku-sdk';
 import crypto from 'crypto';
 import protobuf from 'protobufjs';
 
 import { ErrorHandler } from '../libs/error.js';
 import { Logger } from '../libs/logger.js';
-import { getOptionalEnvVariable, getShortMessageId, sleep } from '../utils/common.js';
+import { getEnvVariable, getShortMessageId, sleep } from '../utils/common.js';
 
-const WAKU_STATIC_PEER = getOptionalEnvVariable('WAKU_STATIC_PEER');
+const WAKU_STATIC_PEER = getEnvVariable('WAKU_STATIC_PEER');
 
 export enum MessageStatus {
   Sending = 'sending',
@@ -54,7 +54,7 @@ export class WakuHandler {
   private readonly maxRetries = 5;
   private currentHealth: HealthStatus = HealthStatus.Unhealthy;
 
-  private static readonly RECOVERY_DELAY_MINIMAL = 4000;
+  private static readonly RECOVERY_DELAY_MINIMAL = 8000;
   private static readonly RECOVERY_DELAY_UNHEALTHY = 10000;
   private static readonly RECOVERY_DELAY_RETRY = 20000;
   private static readonly NODE_RESTART_DELAY = 2000;
@@ -68,15 +68,6 @@ export class WakuHandler {
       WakuHandler.instance = new WakuHandler();
     }
     return WakuHandler.instance;
-  }
-
-  public async init(): Promise<void> {
-    if (this.nodeInitPromise) {
-      return this.nodeInitPromise;
-    }
-
-    this.nodeInitPromise = this.initializeNode();
-    return this.nodeInitPromise;
   }
 
   private createProtobufSchema(): void {
@@ -107,10 +98,10 @@ export class WakuHandler {
     this.logger.info('Protobuf schema created for chat messages');
   }
 
-  private async initializeNode(): Promise<void> {
+  public async initializeNode(): Promise<void> {
     this.node = await createLightNode({
-      defaultBootstrap: !WAKU_STATIC_PEER,
-      bootstrapPeers: WAKU_STATIC_PEER ? [WAKU_STATIC_PEER] : undefined,
+      defaultBootstrap: true,
+      bootstrapPeers: [WAKU_STATIC_PEER],
     });
 
     this.setupNodeEventListeners();
@@ -152,7 +143,6 @@ export class WakuHandler {
     const channel = await ReliableChannel.create(this.node, channelName, this.senderId, encoder, decoder);
 
     this.setupChannelEventListeners(channel, topicName);
-
     this.logger.info(`Created reliable channel for topic: ${topicName}`);
 
     return {
@@ -175,23 +165,13 @@ export class WakuHandler {
     channel.addEventListener('sending-message-irrecoverable-error', (event) => {
       this.handleSendError((event as CustomEvent).detail, topicName);
     });
-
-    if (channel.messageChannel) {
-      channel.messageChannel.addEventListener('sds:out:sync-sent' as any, (event) => {
-        const detail = (event as CustomEvent).detail;
-        const historyIds = detail.causalHistory
-          ?.map((ch: any) => getShortMessageId(ch.messageId?.toString() || ''))
-          .join(', ');
-        this.logger.debug(`[${topicName}] Sync message sent with history: ${historyIds}`);
-      });
-
-      channel.messageChannel.addEventListener('sds:in:message-missing' as any, (event) => {
-        this.handleMissingMessages((event as CustomEvent).detail, topicName);
-      });
-    }
   }
 
   private handleHealthChange(health: HealthStatus): void {
+    if (this.currentHealth === health) {
+      return;
+    }
+
     this.currentHealth = health;
 
     switch (health) {
@@ -234,7 +214,7 @@ export class WakuHandler {
           await sleep(WakuHandler.NODE_RESTART_DELAY);
 
           this.nodeInitPromise = null;
-          await this.init();
+          await this.initializeNode();
 
           this.logger.info('Health recovery attempt completed - node restarted');
           this.retryPendingMessages();
@@ -289,32 +269,6 @@ export class WakuHandler {
     }
   }
 
-  private handleMissingMessages(detail: any, topicName: string): void {
-    const missingMessageIds: string[] = detail.missingMessages || detail.messageIds || [];
-
-    if (missingMessageIds.length === 0) {
-      return;
-    }
-
-    for (const messageId of missingMessageIds) {
-      const tracker = this.messageTrackers.get(messageId);
-
-      if (tracker && tracker.status !== MessageStatus.Acknowledged && tracker.retryCount < this.maxRetries) {
-        this.logger.info(`[${topicName}] Retrying missing message: ${getShortMessageId(messageId)}...`);
-        this.retryMessage(tracker);
-        return;
-      }
-      if (tracker && tracker.retryCount >= this.maxRetries) {
-        this.logger.error(`Missing message ${getShortMessageId(messageId)}... has exceeded retry limit`);
-        this.messageTrackers.delete(messageId);
-        return;
-      }
-      if (!tracker) {
-        this.logger.warn(`No tracker found for missing message: ${getShortMessageId(messageId)}...`);
-      }
-    }
-  }
-
   private async retryMessage(tracker: MessageTracker): Promise<void> {
     const channelInfo = await this.getOrCreateChannel(tracker.topicName);
     if (!channelInfo) return;
@@ -362,8 +316,6 @@ export class WakuHandler {
       throw new Error('WakuHandler not initialized');
     }
 
-    await this.init();
-
     const channelInfo = await this.getOrCreateChannel(topicName);
     const timestamp = Date.now();
 
@@ -404,9 +356,13 @@ export class WakuHandler {
     }
   }
 
-  public cleanupSpecificTopics(topicsToCleanup: string[]): void {
+  public async cleanupSpecificTopics(topicsToCleanup: string[]): Promise<void> {
     for (const topicName of topicsToCleanup) {
       this.logger.info(`Cleaning up channel for inactive topic: ${topicName}`);
+      const channelInfo = this.channels.get(topicName);
+      if (channelInfo) {
+        await channelInfo.channel.stop();
+      }
       this.channels.delete(topicName);
 
       for (const [messageId, tracker] of this.messageTrackers) {
