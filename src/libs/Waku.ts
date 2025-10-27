@@ -35,6 +35,11 @@ interface ChannelInfo {
   encoder: any;
   decoder: any;
   lastUsed: number;
+  listeners: {
+    messageSent: (event: Event) => void;
+    messageAcknowledged: (event: Event) => void;
+    sendError: (event: Event) => void;
+  };
 }
 
 export class WakuHandler {
@@ -49,6 +54,7 @@ export class WakuHandler {
 
   private readonly senderId = crypto.randomBytes(8).toString('hex');
 
+  private nodeHealthListener: ((event: Event) => void) | null = null;
   private messageTrackers = new Map<string, MessageTracker>();
   private readonly maxRetries = 5;
   private currentHealth: HealthStatus = HealthStatus.Unhealthy;
@@ -111,9 +117,22 @@ export class WakuHandler {
   private setupNodeEventListeners(): void {
     if (!this.node || !this.node.events) return;
 
-    this.node.events.addEventListener(WakuEvent.Health, (event) => {
+    if (this.nodeHealthListener) {
+      this.node.events.removeEventListener(WakuEvent.Health, this.nodeHealthListener);
+    }
+
+    this.nodeHealthListener = (event) => {
       this.handleHealthChange((event as CustomEvent).detail);
-    });
+    };
+
+    this.node.events.addEventListener(WakuEvent.Health, this.nodeHealthListener);
+  }
+
+  private cleanupNodeListeners(): void {
+    if (this.node?.events && this.nodeHealthListener) {
+      this.node.events.removeEventListener(WakuEvent.Health, this.nodeHealthListener);
+      this.nodeHealthListener = null;
+    }
   }
 
   public async getOrCreateChannel(topicName: string): Promise<ChannelInfo> {
@@ -144,7 +163,8 @@ export class WakuHandler {
       retrieveFrequencyMs: 8000,
     });
 
-    this.setupChannelEventListeners(channel, topicName);
+    const listeners = this.setupChannelEventListeners(channel, topicName);
+
     this.logger.info(`Created reliable channel for topic: ${topicName}`);
 
     return {
@@ -152,21 +172,45 @@ export class WakuHandler {
       encoder,
       decoder,
       lastUsed: Date.now(),
+      listeners,
     };
   }
 
-  private setupChannelEventListeners(channel: ReliableChannel<any>, topicName: string): void {
-    channel.addEventListener('message-sent', (event) => {
+  private setupChannelEventListeners(channel: ReliableChannel<any>, topicName: string): ChannelInfo['listeners'] {
+    const messageSentListener = (event: Event) => {
       this.handleMessageSent((event as CustomEvent).detail, topicName);
-    });
+    };
 
-    channel.addEventListener('message-acknowledged', (event) => {
+    const messageAcknowledgedListener = (event: Event) => {
       this.handleMessageAcknowledged((event as CustomEvent).detail, topicName);
-    });
+    };
 
-    channel.addEventListener('sending-message-irrecoverable-error', (event) => {
+    const sendErrorListener = (event: Event) => {
       this.handleSendError((event as CustomEvent).detail, topicName);
-    });
+    };
+
+    channel.addEventListener('message-sent', messageSentListener);
+    channel.addEventListener('message-acknowledged', messageAcknowledgedListener);
+    channel.addEventListener('sending-message-irrecoverable-error', sendErrorListener);
+
+    return {
+      messageSent: messageSentListener,
+      messageAcknowledged: messageAcknowledgedListener,
+      sendError: sendErrorListener,
+    };
+  }
+
+  private cleanupChannelListeners(channelInfo: ChannelInfo): void {
+    const { channel, listeners } = channelInfo;
+
+    channel.removeEventListener('message-sent', listeners.messageSent);
+    channel.removeEventListener('message-acknowledged', listeners.messageAcknowledged);
+    channel.removeEventListener('sending-message-irrecoverable-error', listeners.sendError);
+  }
+
+  private async cleanupChannel(channelInfo: ChannelInfo): Promise<void> {
+    this.cleanupChannelListeners(channelInfo);
+    await channelInfo.channel.stop();
   }
 
   private handleHealthChange(health: HealthStatus): void {
@@ -210,7 +254,13 @@ export class WakuHandler {
         if (this.currentHealth === HealthStatus.Unhealthy || this.currentHealth === HealthStatus.MinimallyHealthy) {
           this.logger.info('Attempting to reconnect to Waku network...');
 
+          for (const [topicName, channelInfo] of this.channels) {
+            this.logger.debug(`Cleaning up channel for topic: ${topicName} during health recovery`);
+            await this.cleanupChannel(channelInfo);
+          }
           this.channels.clear();
+
+          this.cleanupNodeListeners();
 
           await this.node.stop();
           await sleep(WakuHandler.NODE_RESTART_DELAY);
@@ -361,9 +411,11 @@ export class WakuHandler {
     for (const topicName of topicsToCleanup) {
       this.logger.info(`Cleaning up channel for inactive topic: ${topicName}`);
       const channelInfo = this.channels.get(topicName);
+
       if (channelInfo) {
-        await channelInfo.channel.stop();
+        await this.cleanupChannel(channelInfo);
       }
+
       this.channels.delete(topicName);
 
       for (const [messageId, tracker] of this.messageTrackers) {
@@ -380,9 +432,15 @@ export class WakuHandler {
 
   public async cleanup(): Promise<void> {
     this.messageTrackers.clear();
+
+    for (const [topicName, channelInfo] of this.channels) {
+      this.logger.debug(`Cleaning up channel for topic: ${topicName}`);
+      await this.cleanupChannel(channelInfo);
+    }
     this.channels.clear();
 
     if (this.node) {
+      this.cleanupNodeListeners();
       await this.node.stop();
       this.node = null;
     }

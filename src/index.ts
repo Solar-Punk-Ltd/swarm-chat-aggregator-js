@@ -6,32 +6,21 @@ import 'dotenv/config';
 import { ErrorHandler } from './libs/error.js';
 import { Logger } from './libs/logger.js';
 import { SwarmAggregator } from './libs/SwarmAggregator.js';
-import { WakuHandler } from './libs/Waku.js';
-import { getBooleanEnvVariable } from './utils/common.js';
-
-const IS_WAKU_ENABLED = getBooleanEnvVariable('IS_WAKU_ENABLED', false);
 
 async function main() {
   const errorHandler = ErrorHandler.getInstance();
   const logger = Logger.getInstance();
 
-  if (IS_WAKU_ENABLED) {
-    try {
-      await WakuHandler.getInstance().initializeNode();
-    } catch (error) {
-      errorHandler.handleError(error, 'WakuInit');
-    }
-  }
-
   const aggregator = new SwarmAggregator();
-
-  let gsocSubscription: GsocSubscription;
+  let gsocSubscription: GsocSubscription | null = null;
+  let server: http.Server | null = null;
+  let isShuttingDown = false;
 
   logger.info('[SwarmAggregator] Starting');
 
   const port = parseInt(process.env.PORT || '3000', 10);
 
-  const server = http.createServer(async (req, res) => {
+  server = http.createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -44,8 +33,13 @@ async function main() {
 
     try {
       if (req.url === '/health' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('OK');
+        if (isShuttingDown) {
+          res.writeHead(503, { 'Content-Type': 'text/plain' });
+          res.end('Service Unavailable - Shutting Down');
+        } else {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end('OK');
+        }
       } else {
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not Found');
@@ -67,26 +61,71 @@ async function main() {
   });
 
   try {
+    await aggregator.initialize();
+
     gsocSubscription = aggregator.subscribeToGsoc();
     aggregator.startTopicCleaner();
     logger.info('[SwarmAggregator] Started');
   } catch (error) {
     errorHandler.handleError(error, 'main');
+    await shutdown();
     process.exit(1);
   }
 
-  process.on('SIGINT', () => {
-    logger.info('\n[SwarmAggregator] Shutting down...');
-    gsocSubscription.cancel();
+  async function shutdown() {
+    if (isShuttingDown) {
+      logger.warn('Shutdown already in progress...');
+      return;
+    }
+
+    isShuttingDown = true;
+    logger.info('\n[SwarmAggregator] Shutting down gracefully...');
+
+    try {
+      // Stop accepting new connections
+      if (server) {
+        await new Promise<void>((resolve) => {
+          server!.close(() => {
+            logger.info('[HttpServer] Closed');
+            resolve();
+          });
+        });
+      }
+
+      if (gsocSubscription) {
+        gsocSubscription.cancel();
+        logger.info('[GSOC] Subscription cancelled');
+      }
+
+      await aggregator.cleanup();
+      logger.info('[SwarmAggregator] Cleaned up');
+
+      logger.info('Graceful shutdown completed');
+    } catch (error) {
+      logger.error('Error during shutdown:', error);
+    }
+  }
+
+  process.on('SIGINT', async () => {
+    logger.info('\nReceived SIGINT');
+    await shutdown();
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', async () => {
+    logger.info('\nReceived SIGTERM');
+    await shutdown();
     process.exit(0);
   });
 
   process.on('uncaughtException', (err) => {
     errorHandler.handleError(err, 'UncaughtException');
+    shutdown().finally(() => process.exit(1));
   });
 
   process.on('unhandledRejection', (reason) => {
     errorHandler.handleError(reason, 'UnhandledRejection');
+    shutdown().finally(() => process.exit(1));
   });
 }
 

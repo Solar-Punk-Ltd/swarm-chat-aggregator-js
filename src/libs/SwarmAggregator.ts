@@ -48,6 +48,10 @@ export class SwarmAggregator {
   private readonly topicStateCleanupInterval = 1 * DAY;
   private readonly maxMessageStateSize = 10 * 1024 * 1024; // 10MB in bytes
 
+  private wakuHandler: WakuHandler | null = null;
+  private cleanupInterval: NodeJS.Timeout | null = null;
+  private initialized = false;
+
   private readonly nodeManager = new NodeManager(CHAT_BEE_URL, NGINX_ADMIN_SECRET);
 
   constructor() {
@@ -57,6 +61,34 @@ export class SwarmAggregator {
       },
     });
     this.chatReaderBee = new Bee(`${CHAT_BEE_URL}/read`);
+  }
+
+  public async initialize(): Promise<void> {
+    if (this.initialized) {
+      this.logger.warn('SwarmAggregator already initialized');
+      return;
+    }
+
+    await this.initializeWaku();
+
+    this.initialized = true;
+    this.logger.info('SwarmAggregator initialized');
+  }
+
+  private async initializeWaku(): Promise<void> {
+    if (!IS_WAKU_ENABLED) {
+      this.logger.info('Waku is disabled, skipping initialization');
+      return;
+    }
+
+    try {
+      this.wakuHandler = WakuHandler.getInstance();
+      await this.wakuHandler.initializeNode();
+      this.logger.info('Waku handler initialized successfully');
+    } catch (error) {
+      this.logger.error('Failed to initialize Waku handler:', error);
+      this.wakuHandler = null;
+    }
   }
 
   public subscribeToGsoc() {
@@ -74,7 +106,7 @@ export class SwarmAggregator {
   }
 
   public startTopicCleaner() {
-    setInterval(() => {
+    this.cleanupInterval = setInterval(() => {
       this.cleanupInactiveTopics();
     }, this.topicStateCleanupInterval);
   }
@@ -224,8 +256,13 @@ export class SwarmAggregator {
     this.logger.info(`Feed write success on topic ${topicName}: ${res.reference}`);
     topicState.index = topicState.index.next();
 
-    if (IS_WAKU_ENABLED) {
-      await WakuHandler.getInstance().publishMessageUpdate(topicName, data, stateRefs || []);
+    if (this.wakuHandler) {
+      try {
+        await this.wakuHandler.publishMessageUpdate(topicName, data, stateRefs || []);
+        this.logger.debug(`Message published to Waku for topic ${topicName}`);
+      } catch (error) {
+        this.logger.error(`Failed to publish message to Waku for topic ${topicName}:`, error);
+      }
     }
   }
 
@@ -288,7 +325,7 @@ export class SwarmAggregator {
     }
   }
 
-  private cleanupInactiveTopics(): void {
+  private async cleanupInactiveTopics(): Promise<void> {
     const now = Date.now();
     const inactiveTopics: string[] = [];
 
@@ -300,9 +337,13 @@ export class SwarmAggregator {
       }
     }
 
-    if (inactiveTopics.length > 0) {
-      const wakuHandler = WakuHandler.getInstance();
-      wakuHandler.cleanupSpecificTopics(inactiveTopics);
+    if (inactiveTopics.length > 0 && this.wakuHandler) {
+      try {
+        await this.wakuHandler.cleanupSpecificTopics(inactiveTopics);
+        this.logger.info(`Cleaned up Waku channels for ${inactiveTopics.length} inactive topics`);
+      } catch (error) {
+        this.logger.error('Failed to cleanup Waku channels for inactive topics:', error);
+      }
     }
   }
 
@@ -335,5 +376,37 @@ export class SwarmAggregator {
     }
 
     this.logger.info(`Message cache pruned. Kept last ${this.minCacheSize} entries.`);
+  }
+
+  public async cleanup(): Promise<void> {
+    this.logger.info('Starting SwarmAggregator cleanup...');
+
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+
+    this.gsocQueue.clear();
+
+    for (const [_topic, state] of this.topicStates) {
+      state.queue.clear();
+    }
+
+    this.topicStates.clear();
+
+    this.messageCache.clear();
+
+    if (this.wakuHandler) {
+      try {
+        await this.wakuHandler.cleanup();
+        this.logger.info('Waku handler cleaned up successfully');
+      } catch (error) {
+        this.logger.error('Failed to cleanup Waku handler:', error);
+      }
+      this.wakuHandler = null;
+    }
+
+    this.initialized = false;
+    this.logger.info('SwarmAggregator cleanup completed');
   }
 }
