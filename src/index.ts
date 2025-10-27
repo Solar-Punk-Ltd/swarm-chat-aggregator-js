@@ -120,12 +120,10 @@ async function main() {
 
   process.on('uncaughtException', (err) => {
     errorHandler.handleError(err, 'UncaughtException');
-    shutdown().finally(() => process.exit(1));
   });
 
   process.on('unhandledRejection', (reason) => {
     errorHandler.handleError(reason, 'UnhandledRejection');
-    shutdown().finally(() => process.exit(1));
   });
 }
 
