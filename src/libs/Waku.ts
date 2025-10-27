@@ -43,7 +43,6 @@ export class WakuHandler {
 
   private static instance: WakuHandler | null = null;
   private node: LightNode | null = null;
-  private nodeInitPromise: Promise<void> | null = null;
 
   private channels = new Map<string, ChannelInfo>();
   private messagePayloadType: protobuf.Type | null = null;
@@ -134,13 +133,16 @@ export class WakuHandler {
       throw new Error('Waku node not initialized');
     }
 
-    const contentTopic = `/solarpunk-msrs-chat/1/${topicName}/proto`;
+    const contentTopic = `/solarpunk-msrs/1/${topicName}/proto`;
     const channelName = `chat-channel-${topicName}`;
 
     const encoder = this.node.createEncoder({ contentTopic });
     const decoder = this.node.createDecoder({ contentTopic });
 
-    const channel = await ReliableChannel.create(this.node, channelName, this.senderId, encoder, decoder);
+    const channel = await ReliableChannel.create(this.node, channelName, this.senderId, encoder, decoder, {
+      maxRetryAttempts: 5,
+      retrieveFrequencyMs: 8000,
+    });
 
     this.setupChannelEventListeners(channel, topicName);
     this.logger.info(`Created reliable channel for topic: ${topicName}`);
@@ -213,7 +215,6 @@ export class WakuHandler {
           await this.node.stop();
           await sleep(WakuHandler.NODE_RESTART_DELAY);
 
-          this.nodeInitPromise = null;
           await this.initializeNode();
 
           this.logger.info('Health recovery attempt completed - node restarted');
@@ -384,7 +385,6 @@ export class WakuHandler {
     if (this.node) {
       await this.node.stop();
       this.node = null;
-      this.nodeInitPromise = null;
     }
   }
 }
