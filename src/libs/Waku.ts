@@ -42,6 +42,14 @@ interface ChannelInfo {
   };
 }
 
+export enum NodeState {
+  Stopped = 'stopped',
+  Starting = 'starting',
+  Ready = 'ready',
+  Stopping = 'stopping',
+  Recovering = 'recovering',
+}
+
 export class WakuHandler {
   private logger = Logger.getInstance();
   private errorHandler = ErrorHandler.getInstance();
@@ -58,11 +66,17 @@ export class WakuHandler {
   private messageTrackers = new Map<string, MessageTracker>();
   private readonly maxRetries = 5;
   private currentHealth: HealthStatus = HealthStatus.Unhealthy;
+  private nodeState: NodeState = NodeState.Stopped;
+  private isRecoveryInProgress = false;
+  private recoveryTimeoutId: NodeJS.Timeout | null = null;
+  private messageCleanupInterval: NodeJS.Timeout | null = null;
 
   private static readonly RECOVERY_DELAY_MINIMAL = 8000;
   private static readonly RECOVERY_DELAY_UNHEALTHY = 10000;
   private static readonly RECOVERY_DELAY_RETRY = 20000;
   private static readonly NODE_RESTART_DELAY = 2000;
+  private static readonly MESSAGE_TRACKER_TIMEOUT = 300000;
+  private static readonly MESSAGE_CLEANUP_INTERVAL = 60000;
 
   private constructor() {
     this.createProtobufSchema();
@@ -104,13 +118,18 @@ export class WakuHandler {
   }
 
   public async initializeNode(): Promise<void> {
+    this.nodeState = NodeState.Starting;
+    this.logger.info('Starting Waku Light Node...');
+
     this.node = await createLightNode({
       defaultBootstrap: true,
       bootstrapPeers: [WAKU_STATIC_PEER],
     });
 
     this.setupNodeEventListeners();
+    this.startMessageCleanup();
 
+    this.nodeState = NodeState.Ready;
     this.logger.info('Waku Light Node started with reliable channel support');
   }
 
@@ -135,7 +154,44 @@ export class WakuHandler {
     }
   }
 
+  private startMessageCleanup(): void {
+    if (this.messageCleanupInterval) {
+      clearInterval(this.messageCleanupInterval);
+    }
+
+    this.messageCleanupInterval = setInterval(() => {
+      this.cleanupOrphanedMessageTrackers();
+    }, WakuHandler.MESSAGE_CLEANUP_INTERVAL);
+  }
+
+  private cleanupOrphanedMessageTrackers(): void {
+    const now = Date.now();
+    let orphanedCount = 0;
+
+    for (const [messageId, tracker] of this.messageTrackers) {
+      const age = now - tracker.timestamp;
+
+      if (age > WakuHandler.MESSAGE_TRACKER_TIMEOUT) {
+        this.logger.warn(
+          `Removing orphaned message tracker for ${getShortMessageId(messageId)}... (age: ${Math.round(
+            age / 1000,
+          )}s, status: ${tracker.status})`,
+        );
+        this.messageTrackers.delete(messageId);
+        orphanedCount++;
+      }
+    }
+
+    if (orphanedCount > 0) {
+      this.logger.info(`Cleaned up ${orphanedCount} orphaned message trackers`);
+    }
+  }
+
   public async getOrCreateChannel(topicName: string): Promise<ChannelInfo> {
+    if (this.nodeState !== NodeState.Ready) {
+      throw new Error(`Cannot create channel: node is ${this.nodeState}`);
+    }
+
     let channelInfo = this.channels.get(topicName);
 
     if (!channelInfo) {
@@ -237,6 +293,16 @@ export class WakuHandler {
   }
 
   private async attemptHealthRecovery(healthType: HealthRecoveryType): Promise<void> {
+    if (this.isRecoveryInProgress) {
+      this.logger.warn(`Health recovery already in progress, skipping new recovery attempt for ${healthType}`);
+      return;
+    }
+
+    if (this.recoveryTimeoutId) {
+      clearTimeout(this.recoveryTimeoutId);
+      this.recoveryTimeoutId = null;
+    }
+
     const recoveryDelay =
       healthType === HealthRecoveryType.Unhealthy
         ? WakuHandler.RECOVERY_DELAY_UNHEALTHY
@@ -244,7 +310,9 @@ export class WakuHandler {
 
     this.logger.info(`Attempting health recovery in ${recoveryDelay}ms for ${healthType} health status...`);
 
-    setTimeout(async () => {
+    this.recoveryTimeoutId = setTimeout(async () => {
+      this.recoveryTimeoutId = null;
+
       try {
         if (!this.node) {
           this.logger.error('Cannot recover: Node is null');
@@ -252,6 +320,8 @@ export class WakuHandler {
         }
 
         if (this.currentHealth === HealthStatus.Unhealthy || this.currentHealth === HealthStatus.MinimallyHealthy) {
+          this.isRecoveryInProgress = true;
+          this.nodeState = NodeState.Recovering;
           this.logger.info('Attempting to reconnect to Waku network...');
 
           for (const [topicName, channelInfo] of this.channels) {
@@ -260,25 +330,34 @@ export class WakuHandler {
           }
           this.channels.clear();
 
+          this.logger.info(`Clearing ${this.messageTrackers.size} message trackers during health recovery`);
+          this.messageTrackers.clear();
+
           this.cleanupNodeListeners();
 
+          this.nodeState = NodeState.Stopping;
           await this.node.stop();
           await sleep(WakuHandler.NODE_RESTART_DELAY);
 
           await this.initializeNode();
 
           this.logger.info('Health recovery attempt completed - node restarted');
-          this.retryPendingMessages();
         } else {
           this.logger.info('Health recovered naturally, no intervention needed');
         }
       } catch (error) {
         this.logger.error('Health recovery failed:', error);
+        this.nodeState = NodeState.Stopped;
 
         if (healthType === HealthRecoveryType.Unhealthy) {
           this.logger.info(`Scheduling another recovery attempt in ${WakuHandler.RECOVERY_DELAY_RETRY}ms...`);
-          setTimeout(() => this.attemptHealthRecovery(HealthRecoveryType.Unhealthy), WakuHandler.RECOVERY_DELAY_RETRY);
+          this.recoveryTimeoutId = setTimeout(
+            () => this.attemptHealthRecovery(HealthRecoveryType.Unhealthy),
+            WakuHandler.RECOVERY_DELAY_RETRY,
+          );
         }
+      } finally {
+        this.isRecoveryInProgress = false;
       }
     }, recoveryDelay);
   }
@@ -321,22 +400,21 @@ export class WakuHandler {
   }
 
   private async retryMessage(tracker: MessageTracker): Promise<void> {
-    const channelInfo = await this.getOrCreateChannel(tracker.topicName);
-    if (!channelInfo) return;
-
-    tracker.retryCount++;
-    tracker.status = MessageStatus.Sending;
-
-    const delay = Math.min(1000 * Math.pow(2, tracker.retryCount), 10000);
-    await sleep(delay);
-
-    this.logger.info(
-      `[${tracker.topicName}] Retrying message ${getShortMessageId(tracker.messageId)}... (attempt ${
-        tracker.retryCount
-      }/${this.maxRetries})`,
-    );
-
     try {
+      const channelInfo = await this.getOrCreateChannel(tracker.topicName);
+
+      tracker.retryCount++;
+      tracker.status = MessageStatus.Sending;
+
+      const delay = Math.min(1000 * Math.pow(2, tracker.retryCount), 10000);
+      await sleep(delay);
+
+      this.logger.info(
+        `[${tracker.topicName}] Retrying message ${getShortMessageId(tracker.messageId)}... (attempt ${
+          tracker.retryCount
+        }/${this.maxRetries})`,
+      );
+
       const newMessageId = channelInfo.channel.send(tracker.payload);
 
       this.messageTrackers.delete(tracker.messageId);
@@ -345,6 +423,11 @@ export class WakuHandler {
     } catch (error) {
       this.logger.error(`Retry failed for message ${tracker.messageId}:`, error);
       tracker.status = MessageStatus.Failed;
+
+      if (tracker.retryCount >= this.maxRetries) {
+        this.logger.error(`Message ${tracker.messageId} exceeded max retries, removing from tracker`);
+        this.messageTrackers.delete(tracker.messageId);
+      }
     }
   }
 
@@ -353,8 +436,16 @@ export class WakuHandler {
       (t) => t.status === MessageStatus.Failed && t.retryCount < this.maxRetries,
     );
 
+    if (pendingMessages.length > 0) {
+      this.logger.info(`Retrying ${pendingMessages.length} pending messages...`);
+    }
+
     for (const tracker of pendingMessages) {
-      this.retryMessage(tracker);
+      try {
+        await this.retryMessage(tracker);
+      } catch (error) {
+        this.logger.error(`Failed to retry message ${tracker.messageId}:`, error);
+      }
     }
   }
 
@@ -363,8 +454,12 @@ export class WakuHandler {
     messageData: MessageData,
     refs: MessageStateRef[],
   ): Promise<void> {
+    if (this.nodeState !== NodeState.Ready) {
+      throw new Error(`Cannot publish message: node is ${this.nodeState}`);
+    }
+
     if (!this.messagePayloadType) {
-      throw new Error('WakuHandler not initialized');
+      throw new Error('Protobuf schema not initialized');
     }
 
     const channelInfo = await this.getOrCreateChannel(topicName);
@@ -431,6 +526,20 @@ export class WakuHandler {
   }
 
   public async cleanup(): Promise<void> {
+    this.logger.info('Starting WakuHandler cleanup...');
+
+    if (this.recoveryTimeoutId) {
+      clearTimeout(this.recoveryTimeoutId);
+      this.recoveryTimeoutId = null;
+      this.logger.debug('Cleared recovery timeout');
+    }
+
+    if (this.messageCleanupInterval) {
+      clearInterval(this.messageCleanupInterval);
+      this.messageCleanupInterval = null;
+      this.logger.debug('Cleared message cleanup interval');
+    }
+
     this.messageTrackers.clear();
 
     for (const [topicName, channelInfo] of this.channels) {
@@ -440,9 +549,17 @@ export class WakuHandler {
     this.channels.clear();
 
     if (this.node) {
+      this.nodeState = NodeState.Stopping;
       this.cleanupNodeListeners();
       await this.node.stop();
       this.node = null;
+      this.logger.debug('Node stopped');
     }
+
+    this.nodeState = NodeState.Stopped;
+    this.isRecoveryInProgress = false;
+    this.currentHealth = HealthStatus.Unhealthy;
+
+    this.logger.info('WakuHandler cleanup completed');
   }
 }
