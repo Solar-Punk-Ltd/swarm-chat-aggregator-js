@@ -15,7 +15,7 @@ importers:
         specifier: ^6.2.0
         version: 6.2.1
       '@solarpunkltd/waku-sdk':
-        specifier: ^0.0.40
+        specifier: 0.0.40
         version: 0.0.40(@multiformats/multiaddr@12.5.1)
       '@waku/utils':
         specifier: ^0.0.27
@@ -3346,7 +3346,7 @@ snapshots:
 
   '@libp2p/peer-id@5.1.7':
     dependencies:
-      '@libp2p/crypto': 5.1.6
+      '@libp2p/crypto': 5.1.12
       '@libp2p/interface': 2.11.0
       multiformats: 13.4.1
       uint8arrays: 5.1.0
