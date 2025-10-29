@@ -86,7 +86,7 @@ export class SwarmAggregator {
       await this.wakuHandler.initializeNode();
       this.logger.info('Waku handler initialized successfully');
     } catch (error) {
-      this.logger.error('Failed to initialize Waku handler:', error);
+      this.errorHandler.handleError(error, 'SwarmAggregator.initializeWaku');
       this.wakuHandler = null;
     }
   }
@@ -142,7 +142,7 @@ export class SwarmAggregator {
 
       return { topicName: parsed.chatTopic, message };
     } catch (error) {
-      this.logger.error('Failed to parse incoming message:', error);
+      this.errorHandler.handleError(error, 'SwarmAggregator.parseIncomingMessage');
       return null;
     }
   }
@@ -212,7 +212,7 @@ export class SwarmAggregator {
         }
       }
     } catch (error) {
-      this.logger.error(`Failed to parse last message state for topic ${topicName}:`, error);
+      this.errorHandler.handleError(error, `SwarmAggregator.updateTopicStateFromFeedData:${topicName}`);
     }
   }
 
@@ -261,7 +261,7 @@ export class SwarmAggregator {
         await this.wakuHandler.publishMessageUpdate(topicName, data, stateRefs || []);
         this.logger.debug(`Message published to Waku for topic ${topicName}`);
       } catch (error) {
-        this.logger.error(`Failed to publish message to Waku for topic ${topicName}:`, error);
+        this.errorHandler.handleError(error, `SwarmAggregator.processMessageForTopic.waku:${topicName}`);
       }
     }
   }
@@ -342,7 +342,7 @@ export class SwarmAggregator {
         await this.wakuHandler.cleanupSpecificTopics(inactiveTopics);
         this.logger.info(`Cleaned up Waku channels for ${inactiveTopics.length} inactive topics`);
       } catch (error) {
-        this.logger.error('Failed to cleanup Waku channels for inactive topics:', error);
+        this.errorHandler.handleError(error, 'SwarmAggregator.cleanupInactiveTopics.waku');
       }
     }
   }
@@ -401,7 +401,7 @@ export class SwarmAggregator {
         await this.wakuHandler.cleanup();
         this.logger.info('Waku handler cleaned up successfully');
       } catch (error) {
-        this.logger.error('Failed to cleanup Waku handler:', error);
+        this.errorHandler.handleError(error, 'SwarmAggregator.cleanup.waku');
       }
       this.wakuHandler = null;
     }
