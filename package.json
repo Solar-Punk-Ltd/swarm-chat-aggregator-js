@@ -32,7 +32,7 @@
   "dependencies": {
     "@ethersphere/bee-js": "^9.0.3",
     "@solarpunkltd/swarm-chat-js": "^6.2.0",
-    "@solarpunkltd/waku-sdk": "^0.0.40",
+    "@solarpunkltd/waku-sdk": "0.0.40",
     "@waku/utils": "^0.0.27",
     "axios": "^1.12.2",
     "dotenv": "^16.4.7",
