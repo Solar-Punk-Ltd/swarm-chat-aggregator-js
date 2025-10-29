@@ -346,7 +346,7 @@ export class WakuHandler {
           this.logger.info('Health recovered naturally, no intervention needed');
         }
       } catch (error) {
-        this.logger.error('Health recovery failed:', error);
+        this.errorHandler.handleError(error, 'Health recovery failed');
         this.nodeState = NodeState.Stopped;
 
         if (healthType === HealthRecoveryType.Unhealthy) {
@@ -421,7 +421,7 @@ export class WakuHandler {
       tracker.messageId = newMessageId;
       this.messageTrackers.set(newMessageId, tracker);
     } catch (error) {
-      this.logger.error(`Retry failed for message ${tracker.messageId}:`, error);
+      this.errorHandler.handleError(error, `WakuHandler.retryMessage:${tracker.messageId}`);
       tracker.status = MessageStatus.Failed;
 
       if (tracker.retryCount >= this.maxRetries) {
@@ -444,7 +444,7 @@ export class WakuHandler {
       try {
         await this.retryMessage(tracker);
       } catch (error) {
-        this.logger.error(`Failed to retry message ${tracker.messageId}:`, error);
+        this.errorHandler.handleError(error, `WakuHandler.retryPendingMessages:${tracker.messageId}`);
       }
     }
   }
