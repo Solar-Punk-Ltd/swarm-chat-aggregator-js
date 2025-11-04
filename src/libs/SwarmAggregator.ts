@@ -135,8 +135,10 @@ export class SwarmAggregator {
         return null;
       }
 
-      if (!parsed?.additionalProps?.streamId) {
-        this.logger.error('Invalid message format: missing streamId in additionalProps');
+      const isExternal = parsed?.additionalProps?.isExternal === true;
+
+      if (!isExternal && !parsed?.additionalProps?.streamId) {
+        this.logger.error('Invalid message format: missing streamId in additionalProps for non-external message');
         return null;
       }
 
@@ -229,7 +231,11 @@ export class SwarmAggregator {
 
   private async processMessageForTopic(topicName: string, topicState: TopicState, message: Bytes): Promise<void> {
     const data = message.toJSON() as MessageData;
-    const nodeInfo = await this.nodeManager.getRequiredChatNode(data?.additionalProps?.streamId);
+    const isExternal = data?.additionalProps?.isExternal === true;
+
+    const nodeInfo = isExternal
+      ? await this.nodeManager.getCustomNodeWithTags(['external', 'chat'])
+      : await this.nodeManager.getRequiredChatNode(data?.additionalProps?.streamId);
 
     this.chatWriterBee = nodeInfo
       ? new Bee(`${CHAT_BEE_URL}/admin/direct/${nodeInfo.port}`, {
@@ -239,7 +245,8 @@ export class SwarmAggregator {
         })
       : new Bee(`${CHAT_BEE_URL}/write`);
 
-    const stateRefs = await this.handleMessageState(topicState, data);
+    const stampToUse = nodeInfo?.stamp || CHAT_STAMP;
+    const stateRefs = await this.handleMessageState(topicState, data, stampToUse);
 
     const newData = {
       message: data,
@@ -250,7 +257,7 @@ export class SwarmAggregator {
     const signer = new PrivateKey(CHAT_KEY);
     const feedWriter = this.chatWriterBee.makeFeedWriter(topic, signer);
 
-    const res = await feedWriter.uploadPayload(CHAT_STAMP, JSON.stringify(newData), {
+    const res = await feedWriter.uploadPayload(stampToUse, JSON.stringify(newData), {
       index: topicState.index,
     });
     this.logger.info(`Feed write success on topic ${topicName}: ${res.reference}`);
@@ -266,7 +273,11 @@ export class SwarmAggregator {
     }
   }
 
-  private async handleMessageState(topicState: TopicState, message: MessageData): Promise<MessageStateRef[] | null> {
+  private async handleMessageState(
+    topicState: TopicState,
+    message: MessageData,
+    stamp: string,
+  ): Promise<MessageStateRef[] | null> {
     if (!this.chatWriterBee) {
       this.logger.error('Chat writer bee is not initialized.');
       return null;
@@ -282,7 +293,7 @@ export class SwarmAggregator {
       const newState = [message];
       const newStateString = JSON.stringify(newState);
 
-      const uploadResult = await this.chatWriterBee.uploadData(CHAT_STAMP, newStateString, {
+      const uploadResult = await this.chatWriterBee.uploadData(stamp, newStateString, {
         redundancyLevel: RedundancyLevel.INSANE,
       });
 
@@ -300,7 +311,7 @@ export class SwarmAggregator {
 
       return topicState.messageStateRefs;
     } else {
-      const uploadResult = await this.chatWriterBee.uploadData(CHAT_STAMP, stateString, {
+      const uploadResult = await this.chatWriterBee.uploadData(stamp, stateString, {
         redundancyLevel: RedundancyLevel.INSANE,
       });
 
