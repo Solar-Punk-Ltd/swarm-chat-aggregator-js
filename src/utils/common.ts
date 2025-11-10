@@ -29,3 +29,7 @@ export function getBooleanEnvVariable(name: string, defaultValue: boolean = fals
 export function getOptionalEnvVariable(name: string): string | undefined {
   return process.env[name];
 }
+
+export function getEnvVariableWithDefault(name: string, defaultValue: string): string {
+  return process.env[name] || defaultValue;
+}
