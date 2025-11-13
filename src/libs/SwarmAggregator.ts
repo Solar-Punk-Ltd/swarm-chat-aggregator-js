@@ -45,7 +45,7 @@ export class SwarmAggregator {
   private readonly maxCacheSize = 1000;
   private readonly minCacheSize = 100;
   private readonly maxTopicStateAge = 2 * DAY;
-  private readonly topicStateCleanupInterval = 1 * DAY;
+  private readonly topicStateCleanupInterval = 7 * DAY;
   private readonly maxMessageStateSize = 10 * 1024 * 1024; // 10MB in bytes
 
   private wakuHandler: WakuHandler | null = null;
