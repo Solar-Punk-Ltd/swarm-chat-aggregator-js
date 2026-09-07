@@ -1,4 +1,3 @@
-import { GsocSubscription } from '@ethersphere/bee-js';
 import * as http from 'http';
 
 import 'dotenv/config';
@@ -11,8 +10,6 @@ async function main() {
   const aggregator = new SwarmAggregator();
   const errorHandler = ErrorHandler.getInstance();
   const logger = Logger.getInstance();
-  let gsocSubscription: GsocSubscription;
-
   logger.info('[SwarmAggregator] Starting');
 
   const port = parseInt(process.env.PORT || '3000', 10);
@@ -31,7 +28,7 @@ async function main() {
   });
 
   try {
-    gsocSubscription = aggregator.subscribeToGsoc();
+    aggregator.subscribeToGsoc();
     aggregator.startTopicCleaner();
     logger.info('[SwarmAggregator] Started');
   } catch (error) {
@@ -39,11 +36,15 @@ async function main() {
     process.exit(1);
   }
 
-  process.on('SIGINT', () => {
-    logger.info('\n[SwarmAggregator] Shutting down...');
-    gsocSubscription.cancel();
-    process.exit(0);
-  });
+  // Docker stops a container with SIGTERM; without a handler the process is killed after the grace
+  // period with the socket still open.
+  const shutdown = (signal: string) => {
+    logger.info(`\n[SwarmAggregator] ${signal} received, shutting down...`);
+    aggregator.unsubscribeFromGsoc();
+    server.close(() => process.exit(0));
+  };
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 
   process.on('uncaughtException', (err) => {
     errorHandler.handleError(err, 'UncaughtException');
