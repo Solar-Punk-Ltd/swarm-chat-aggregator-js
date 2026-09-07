@@ -1,4 +1,3 @@
-import { GsocSubscription } from '@ethersphere/bee-js';
 import * as http from 'http';
 
 import 'dotenv/config';
@@ -12,7 +11,6 @@ async function main() {
   const logger = Logger.getInstance();
 
   const aggregator = new SwarmAggregator();
-  let gsocSubscription: GsocSubscription | null = null;
   let server: http.Server | null = null;
   let isShuttingDown = false;
 
@@ -63,7 +61,7 @@ async function main() {
   try {
     await aggregator.initialize();
 
-    gsocSubscription = aggregator.subscribeToGsoc();
+    aggregator.subscribeToGsoc();
     aggregator.startTopicCleaner();
     logger.info('[SwarmAggregator] Started');
   } catch (error) {
@@ -92,10 +90,8 @@ async function main() {
         });
       }
 
-      if (gsocSubscription) {
-        gsocSubscription.cancel();
-        logger.info('[GSOC] Subscription cancelled');
-      }
+      aggregator.unsubscribeFromGsoc();
+      logger.info('[GSOC] Subscription cancelled');
 
       await aggregator.cleanup();
       logger.info('[SwarmAggregator] Cleaned up');

@@ -30,7 +30,7 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@ethersphere/bee-js": "^9.0.3",
+    "@ethersphere/bee-js": "^13.0.0",
     "@solarpunkltd/swarm-chat-js": "^6.2.0",
     "@solarpunkltd/waku-sdk": "0.0.41",
     "@waku/utils": "^0.0.27",
