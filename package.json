@@ -26,11 +26,12 @@
     "start": "node dist/index.js",
     "lint": "eslint . --ext .ts --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "npm run lint -- --fix",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm build && node --test \"dist/**/*.test.js\""
   },
   "dependencies": {
     "@solarpunkltd/swarm-chat-js": "^5.0.0",
-    "@ethersphere/bee-js": "^9.0.3",
+    "@ethersphere/bee-js": "^13.0.0",
     "dotenv": "^16.4.7",
     "p-queue": "^8.1.0"
   },

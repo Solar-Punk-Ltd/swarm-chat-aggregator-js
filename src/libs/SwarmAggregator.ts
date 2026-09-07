@@ -1,9 +1,21 @@
-import { Bee, Bytes, FeedIndex, Identifier, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
+import {
+  Bee,
+  BeeError,
+  Bytes,
+  FeedIndex,
+  GsocSubscription,
+  Identifier,
+  PrivateKey,
+  RedundancyLevel,
+  Topic,
+} from '@ethersphere/bee-js';
 import { MessageData, MessageStateRef, StatefulMessage } from '@solarpunkltd/swarm-chat-js';
 import PQueue from 'p-queue';
 
+import { reconnectDelayMs } from '../utils/backoff.js';
 import { DAY } from '../utils/constants.js';
 import { getEnvVariable } from '../utils/env.js';
+import { encodeStatePayload } from '../utils/feedPayload.js';
 
 import { ErrorHandler } from './error.js';
 import { Logger } from './logger.js';
@@ -41,23 +53,66 @@ export class SwarmAggregator {
   private readonly topicStateCleanupInterval = 1 * DAY;
   private readonly maxMessageStateSize = 10 * 1024 * 1024; // 10MB in bytes
 
+  private gsocSubscription: GsocSubscription | null = null;
+  private gsocReconnectAttempt = 0;
+  private gsocReconnectTimer: NodeJS.Timeout | null = null;
+  private isGsocStopped = false;
+
   constructor() {
     this.gsocBee = new Bee(GSOC_BEE_URL);
     this.chatBee = new Bee(CHAT_BEE_URL);
   }
 
-  public subscribeToGsoc() {
+  public subscribeToGsoc(): GsocSubscription {
     const key = new PrivateKey(GSOC_RESOURCE_ID);
     const identifier = Identifier.fromString(GSOC_TOPIC);
 
-    const gsocSub = this.gsocBee.gsocSubscribe(key.publicKey().address(), identifier, {
-      onMessage: (message: Bytes) => this.gsocQueue.add(() => this.handleGsocMessage(message)),
-      onError: console.error,
+    const subscription = this.gsocBee.messaging.gsocSubscribe(key.publicKey().address(), identifier, {
+      onMessage: (message: Bytes) => {
+        this.gsocReconnectAttempt = 0;
+        this.gsocQueue.add(() => this.handleGsocMessage(message));
+      },
+      onError: (error: BeeError) => this.logger.error('[GSOC] Subscription error:', error.message),
+      // Bee drops the socket whenever the gateway in front of it restarts, and a dropped socket is
+      // silent: no message ever arrives again. Reopen it, or chat stays frozen until a redeploy.
+      onClose: () => this.scheduleGsocResubscribe(),
     });
 
+    this.gsocSubscription = subscription;
     this.logger.info(`Subscribed to gsoc. Topic: ${GSOC_TOPIC} Resource ID: ${GSOC_RESOURCE_ID}`);
 
-    return gsocSub;
+    return subscription;
+  }
+
+  /** Closes the subscription for good; the close this causes must not reopen it. */
+  public unsubscribeFromGsoc(): void {
+    this.isGsocStopped = true;
+    if (this.gsocReconnectTimer) {
+      clearTimeout(this.gsocReconnectTimer);
+      this.gsocReconnectTimer = null;
+    }
+    this.gsocSubscription?.cancel();
+    this.gsocSubscription = null;
+  }
+
+  private scheduleGsocResubscribe(): void {
+    if (this.isGsocStopped || this.gsocReconnectTimer) {
+      return;
+    }
+
+    const delayMs = reconnectDelayMs(this.gsocReconnectAttempt);
+    this.gsocReconnectAttempt += 1;
+    this.logger.warn(`[GSOC] Subscription closed, resubscribing in ${delayMs} ms`);
+
+    this.gsocReconnectTimer = setTimeout(() => {
+      this.gsocReconnectTimer = null;
+      try {
+        this.subscribeToGsoc();
+      } catch (error) {
+        this.errorHandler.handleError(error, 'SwarmAggregator.scheduleGsocResubscribe');
+        this.scheduleGsocResubscribe();
+      }
+    }, delayMs);
   }
 
   public startTopicCleaner() {
@@ -125,7 +180,7 @@ export class SwarmAggregator {
     const topic = Topic.fromString(topicName);
     const signer = new PrivateKey(CHAT_KEY);
     const publicKey = signer.publicKey().address();
-    const feedReader = this.chatBee.makeFeedReader(topic, publicKey);
+    const feedReader = this.chatBee.feed.makeReader(topic, publicKey);
 
     try {
       const data = await feedReader.downloadPayload();
@@ -157,7 +212,7 @@ export class SwarmAggregator {
           const latestRef = topicState.messageStateRefs.reduce((latest, current) =>
             current.timestamp > latest.timestamp ? current : latest,
           );
-          const state = await this.chatBee.downloadData(latestRef.reference);
+          const state = await this.chatBee.data.download(latestRef.reference);
           topicState.messageState = state.toJSON() as MessageData[];
         }
       }
@@ -180,7 +235,7 @@ export class SwarmAggregator {
   private async processMessageForTopic(topicName: string, topicState: TopicState, message: Bytes): Promise<void> {
     const topic = Topic.fromString(topicName);
     const signer = new PrivateKey(CHAT_KEY);
-    const feedWriter = this.chatBee.makeFeedWriter(topic, signer);
+    const feedWriter = this.chatBee.feed.makeWriter(topic, signer);
 
     const data = message.toJSON() as MessageData;
     const stateRefs = await this.handleMessageState(topicState, data);
@@ -190,7 +245,7 @@ export class SwarmAggregator {
       messageStateRefs: stateRefs && stateRefs.length > 0 ? stateRefs : null,
     };
 
-    const res = await feedWriter.uploadPayload(CHAT_STAMP, JSON.stringify(newData), {
+    const res = await feedWriter.uploadPayload(CHAT_STAMP, encodeStatePayload(newData), {
       index: topicState.index,
     });
 
@@ -209,7 +264,7 @@ export class SwarmAggregator {
       const newState = [message];
       const newStateString = JSON.stringify(newState);
 
-      const uploadResult = await this.chatBee.uploadData(CHAT_STAMP, newStateString, {
+      const uploadResult = await this.chatBee.data.upload(CHAT_STAMP, newStateString, {
         redundancyLevel: RedundancyLevel.INSANE,
       });
 
@@ -227,7 +282,7 @@ export class SwarmAggregator {
 
       return topicState.messageStateRefs;
     } else {
-      const uploadResult = await this.chatBee.uploadData(CHAT_STAMP, stateString, {
+      const uploadResult = await this.chatBee.data.upload(CHAT_STAMP, stateString, {
         redundancyLevel: RedundancyLevel.INSANE,
       });
 
