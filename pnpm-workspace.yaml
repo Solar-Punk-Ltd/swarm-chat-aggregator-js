@@ -1,12 +1,13 @@
 packages:
   - '.'
 
-# pnpm 10+ refuses to run dependency build scripts it has not been told about. unrs-resolver is the
-# eslint import resolver's native binding and must build. bufferutil and utf-8-validate are optional
-# ws accelerators, left off so the alpine image needs no compiler.
+# pnpm 10+ refuses to run dependency build scripts it has not been told about, and in CI that refusal
+# is fatal. esbuild and protobufjs (Waku) and unrs-resolver (the eslint import resolver) must build.
+# bufferutil and utf-8-validate are optional ws accelerators, left off so the alpine image needs no
+# compiler.
 allowBuilds:
+  esbuild: true
+  protobufjs: true
   unrs-resolver: true
   bufferutil: false
   utf-8-validate: false
-  esbuild: set this to true or false
-  protobufjs: set this to true or false
