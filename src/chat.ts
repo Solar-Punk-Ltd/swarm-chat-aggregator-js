@@ -89,6 +89,10 @@ export class ChatPublisher {
   private draining = false;
   private stopped = false;
   private wake: (() => void) | undefined;
+  private signalStop: () => void = () => undefined;
+  private readonly stopRequested = new Promise<void>((resolve) => {
+    this.signalStop = resolve;
+  });
   private loop: Promise<void> | undefined;
   private checkpointWrites: Promise<boolean> = Promise.resolve(true);
 
@@ -159,12 +163,15 @@ export class ChatPublisher {
       this.logger.warn(`[chat ${this.topic}] drain deadline passed with ${this.queue.length} messages unpublished`);
     }
     this.stop();
+    // A write already sent can still land, so the lock is not released until the loop has seen the stop.
+    await this.loop;
     await this.checkpointWrites;
   }
 
   stop(): void {
     this.accepting = false;
     this.stopped = true;
+    this.signalStop();
     if (this.pending && !this.pending.persisted) {
       this.stats.drop(DropReason.Shutdown);
       this.logger.warn(`[chat ${this.topic}] dropped at shutdown`, deadLetterLine(this.pending.row.msg));
@@ -237,6 +244,13 @@ export class ChatPublisher {
       }
       await this.stage(queued);
     }
+  }
+
+  /** A retry's wait, cut short by a stop so shutdown never waits out a backoff. */
+  private async sleepUnlessStopped(ms: number): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([new Promise<void>((resolve) => (timer = setTimeout(resolve, ms))), this.stopRequested]);
+    clearTimeout(timer);
   }
 
   /** Waits for a new message, a stop, or `ms` when given. */
@@ -406,7 +420,7 @@ export class ChatPublisher {
       }
       this.failing = true;
       this.lastError = `checkpoint write failed before slot ${row.seq}`;
-      await sleep(retryDelayMs(attempt, this.timings.retryBaseMs));
+      await this.sleepUnlessStopped(retryDelayMs(attempt, this.timings.retryBaseMs));
     }
   }
 
@@ -423,7 +437,7 @@ export class ChatPublisher {
     let checked = false;
     for (let attempt = 0; !this.stopped; attempt++) {
       if (attempt > 0) {
-        await sleep(retryDelayMs(attempt - 1, this.timings.retryBaseMs));
+        await this.sleepUnlessStopped(retryDelayMs(attempt - 1, this.timings.retryBaseMs));
         if (this.stopped) {
           return;
         }
