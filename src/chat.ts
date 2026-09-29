@@ -201,7 +201,7 @@ export class ChatPublisher {
   }
 
   /** Called by the history book after each save, so a restart finds the newest file. */
-  async recordHistory(_link: HistoryLink): Promise<void> {
+  async recordHistory(): Promise<void> {
     if (this.stateValue === ChatState.Ready) {
       await this.writeCheckpoint();
     }

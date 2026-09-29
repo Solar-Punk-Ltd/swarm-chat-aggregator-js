@@ -209,7 +209,7 @@ export class AggregatorServer {
       topic,
       this.historyStore,
       (save) => this.saveWithRetries(topic, save),
-      (link) => void chat?.recordHistory(link),
+      () => void chat?.recordHistory(),
       this.options.historyLimits,
     );
     chat = new ChatPublisher(
