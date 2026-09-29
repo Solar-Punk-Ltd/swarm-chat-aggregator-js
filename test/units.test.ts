@@ -1,4 +1,7 @@
+import { BeeResponseError } from '@ethersphere/bee-js';
 import { describe, expect, test } from 'vitest';
+
+import { describeError } from '../src/feed/slots.js';
 
 import { SentNonces, encodeHeartbeat, heartbeatNonce, newHeartbeat } from '../src/heartbeat.js';
 import { RateLimiter } from '../src/rate.js';
@@ -41,5 +44,21 @@ describe('rate limiter', () => {
     expect(limiter.fits('k', 20)).toBe(false);
     expect(limiter.fits('other', 20)).toBe(true);
     expect(limiter.fits('k', 1001)).toBe(true);
+  });
+});
+
+describe('error text', () => {
+  test("keeps Bee's own reason beside the status", () => {
+    const error = new BeeResponseError(
+      'POST',
+      'http://writer.example.com/soc/a/b',
+      'Payment Required: batch not usable',
+      undefined,
+      402,
+      'Payment Required',
+    );
+    expect(describeError(error)).toBe(
+      'POST http://writer.example.com/soc/a/b answered 402: Payment Required: batch not usable',
+    );
   });
 });
