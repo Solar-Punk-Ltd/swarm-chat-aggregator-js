@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 
 import { Bee, Bytes, FeedIndex, Identifier, Topic } from '@ethersphere/bee-js';
 
-import { Cluster, httpJson, removeLeftovers } from './cluster.mjs';
+import { BEE_ROLES, Cluster, httpJson, removeLeftovers } from './cluster.mjs';
 import { randomKey } from './payloads.mjs';
 
 const BEE_VERSIONS = (process.env.BED_BEE_VERSIONS ?? '2.8.2,2.6.0').split(',').map((v) => v.trim());
@@ -68,7 +68,7 @@ const STATUS_FIELDS = ['beeMode', 'isWarmingUp', 'isReachable', 'connectedPeers'
  */
 async function recordNodeViews(cluster, beeVersion) {
   const pick = (status) => Object.fromEntries(STATUS_FIELDS.map((field) => [field, status?.[field]]));
-  for (const role of ['queen', 'worker']) {
+  for (const role of BEE_ROLES) {
     for (const [label, read] of [
       ['/status', async () => pick(await httpJson(`${cluster.url(role)}/status`))],
       [
@@ -217,8 +217,7 @@ async function spike(beeVersion) {
     return true;
   } catch (error) {
     log(`FAIL Bee ${beeVersion}: ${error.stack ?? error}`);
-    for (const role of ['queen', 'worker', 'chain'])
-      log(`--- last log lines of ${role}\n${cluster.containerLogs(role)}`);
+    for (const role of [...BEE_ROLES, 'chain']) log(`--- last log lines of ${role}\n${cluster.containerLogs(role)}`);
     return false;
   } finally {
     log(`diagnostics saved in ${await cluster.saveDiagnostics(`spike-${beeVersion}`)}`);
