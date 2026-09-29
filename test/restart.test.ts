@@ -245,6 +245,19 @@ describe('write-ahead checkpoint', () => {
     expect(lost).toContain(fresh.prev?.ref);
   });
 
+  test('a stop waits for a write already sent, and the checkpoint names the landed slot before the lock is let go', async () => {
+    const server = await rig.startServer({ SHUTDOWN_DEADLINE_MS: '100' });
+    rig.writer.faults.socWriteDelayMs = 500;
+    await rig.send(message({ text: 'in flight at the stop' }));
+    await waitFor(() => rig.writer.requests.some((request) => request.startsWith('POST /soc')), 5000, 'the write sent');
+    await server.stop();
+    const checkpoint = JSON.parse(
+      await readFile(join(rig.checkpointDir, `${Topic.fromString(CHAT).toHex()}.json`), 'utf8'),
+    ) as { index: number; pending: unknown };
+    expect(rig.entry(0)?.msg.text).toBe('in flight at the stop');
+    expect(checkpoint).toMatchObject({ index: 0, pending: null });
+  });
+
   test('a history save that finishes after the stop does not write the checkpoint', async () => {
     const server = await rig.startServer({ SHUTDOWN_DEADLINE_MS: '100' });
     rig.writer.faults.dataUploadDelayMs = 600;
