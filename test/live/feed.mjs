@@ -4,6 +4,11 @@ import { FeedLedger } from './ledger.mjs';
 import { messageIdOf } from './payloads.mjs';
 
 const NOT_FOUND = /\b404\b|not found/i;
+
+/** Bee answers a chunk it cannot find in the network with 404 or 500, and bee-js's own isRetrievable reads both so. */
+function isAbsent(error) {
+  return error?.status === 404 || error?.status === 500 || NOT_FOUND.test(String(error?.message));
+}
 /** bee-js 13.1 ignores its timeout option, so every read carries a signal of its own. */
 const READ_TIMEOUT_MS = 20_000;
 
@@ -34,7 +39,7 @@ export class FeedFollower {
       }
       return messageIdOf(this.format, entry);
     } catch (error) {
-      if (NOT_FOUND.test(String(error?.message)) || error?.status === 404) return undefined;
+      if (isAbsent(error)) return undefined;
       throw error;
     }
   }
