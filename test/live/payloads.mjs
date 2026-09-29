@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { PrivateKey } from '@ethersphere/bee-js';
-import { createChatMessage, encodeChatMessage, parseChatMessage } from 'swarm-chat-js-v7/message';
+import { createChatMessage, encodeChatMessage, parseChatMessage } from '@solarpunkltd/swarm-chat-js/message';
 
 export const PayloadFormat = { V6: 'v6', V7: 'v7' };
 

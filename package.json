@@ -28,7 +28,7 @@
     "lint:fix": "npm run lint -- --fix",
     "typecheck": "tsc --noEmit",
     "test": "pnpm build && node --test \"dist/**/*.test.js\" test/live/bed.test.mjs",
-    "test:docker": "node test/live/spike.mjs && pnpm build && node test/live/bed.mjs --server master --format v6 --expect-fail B2,B3,B4"
+    "test:docker": "pnpm build && node test/live/bed.mjs"
   },
   "dependencies": {
     "@ethersphere/bee-js": "^13.1.0",
@@ -53,7 +53,6 @@
     "lint-staged": "^15.5.0",
     "prettier": "^2.8.8",
     "rimraf": "^6.0.1",
-    "swarm-chat-js-v7": "file:vendor/solarpunkltd-swarm-chat-js-7.0.0.tgz",
     "typescript": "^5.8.2"
   },
   "files": [
