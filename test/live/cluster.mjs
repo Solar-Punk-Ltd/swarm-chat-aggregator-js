@@ -1,11 +1,14 @@
 import { randomInt } from 'node:crypto';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { docker, ownContainerId } from './docker.mjs';
+import { docker, ownContainerId, saveContainerLog } from './docker.mjs';
 
 export const BED_LABEL = 'swarm-chat-live-bed';
+
+/** The box brings back every test-results folder of a run as that run's artifact. */
+export const RESULTS_DIR = 'test-results';
 
 /**
  * fdp-play 3.3.0's local chain and the node settings its CLI hands every Bee
@@ -312,6 +315,28 @@ export class Cluster {
     const address = underlay.find((entry) => entry.startsWith('/ip4/') && !entry.startsWith('/ip4/127.'));
     if (!address) throw new Error(`${role} advertised no reachable ip4 underlay: ${underlay.join(' ')}`);
     return address;
+  }
+
+  /**
+   * Writes each container's whole log, and each node's status and topology, into a folder under test-results,
+   * and returns that folder. Called before the cluster is removed, whether the run passed or not.
+   */
+  async saveDiagnostics(label) {
+    const dir = join(RESULTS_DIR, `${label}-${this.runId}`);
+    mkdirSync(dir, { recursive: true });
+    for (const [role, name] of Object.entries(this.names)) saveContainerLog(name, join(dir, `${role}.log`));
+    for (const role of ['queen', 'worker']) {
+      for (const endpoint of ['status', 'topology']) {
+        let body;
+        try {
+          body = JSON.stringify(await httpJson(`${this.url(role)}/${endpoint}`, { timeoutMs: 10_000 }), null, 2);
+        } catch (error) {
+          body = `could not be read: ${error.message}`;
+        }
+        writeFileSync(join(dir, `${role}-${endpoint}.json`), `${body}\n`);
+      }
+    }
+    return dir;
   }
 
   containerLogs(role, tail = 80) {

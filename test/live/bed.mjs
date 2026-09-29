@@ -5,6 +5,7 @@
 // Strict by default: every scenario must pass. --expect-fail names the scenarios a baseline run exists to see
 // fail, and the run then passes only when exactly those fail. Timings are printed and never asserted.
 import { randomBytes } from 'node:crypto';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { Bee, Identifier } from '@ethersphere/bee-js';
@@ -107,6 +108,9 @@ try {
 } finally {
   await server?.stop();
   if (server) log(`--- last log lines of the server\n${server.logTail()}`);
+  const diagnostics = await cluster.saveDiagnostics('bed');
+  server?.saveLog(join(diagnostics, 'server.log'));
+  log(`diagnostics saved in ${diagnostics}`);
   cluster.stop();
 }
 
