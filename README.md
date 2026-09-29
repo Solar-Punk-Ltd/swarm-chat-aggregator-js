@@ -42,6 +42,10 @@ runs at a time per chat, and messages published meanwhile ride the next save, so
 saves. A file closes at 1,000 messages or 512 KB, and the next one starts with `prev` pointing at it. Files are
 uploaded at the `INSANE` redundancy level.
 
+A file that cannot be downloaded when a chat resumes, as when its stamp has expired, is retried with the resume,
+and after `PUBLISH_ATTEMPTS` failures in a row the chat starts a fresh file whose `prev` points at the lost one.
+The chat keeps publishing, the loss is logged as an error, and `/health` names the lost file as `historyLost`.
+
 What history costs grows with the square of the chat's length, because each save uploads the whole current
 file again: with messages of about 400 bytes a chat of N messages uploads about 400 × N² / 2 bytes of history
 over its life, about 20 MB at 300 messages and about 200 MB at 1,000, before redundancy.

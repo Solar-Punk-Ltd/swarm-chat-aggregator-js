@@ -21,6 +21,15 @@ export interface HistoryStore {
   download(link: HistoryLink, topic: string): Promise<HistoryFile>;
 }
 
+/**
+ * Where a resumed chat's history continues from: nothing yet, a saved file it keeps appending to, or a file that
+ * could not be downloaded, after which a fresh file starts and links back to it.
+ */
+export type HistoryStart =
+  | { kind: 'none' }
+  | { kind: 'saved'; link: HistoryLink; file: HistoryFile }
+  | { kind: 'lost'; link: HistoryLink };
+
 export type HistoryLimits = { maxMessages: number; maxBytes: number };
 
 export const DEFAULT_HISTORY_LIMITS: HistoryLimits = { maxMessages: 1000, maxBytes: 512 * 1024 };
@@ -64,17 +73,20 @@ export class HistoryBook {
   }
 
   /** Continues from a saved file and the rows published after it, as resuming a chat rebuilds them. */
-  restore(saved: { link: HistoryLink; file: HistoryFile } | null, later: HistoryRow[]): void {
+  restore(start: HistoryStart, later: HistoryRow[]): void {
     this.closed.length = 0;
-    if (saved) {
+    if (start.kind === 'saved') {
       this.current = {
-        fromSeq: saved.file.fromSeq,
-        rows: [...saved.file.rows],
-        rowBytes: saved.file.rows.reduce((sum, row) => sum + rowSize(row), 0),
-        prev: saved.file.prev,
-        savedAs: saved.link,
+        fromSeq: start.file.fromSeq,
+        rows: [...start.file.rows],
+        rowBytes: start.file.rows.reduce((sum, row) => sum + rowSize(row), 0),
+        prev: start.file.prev,
+        savedAs: start.link,
       };
-      this.newest = saved.link;
+      this.newest = start.link;
+    } else if (start.kind === 'lost') {
+      this.current = emptyFile(start.link.toSeq + 1, start.link);
+      this.newest = start.link;
     } else {
       this.current = emptyFile(later[0]?.seq ?? 0, null);
       this.newest = null;
