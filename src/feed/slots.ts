@@ -30,7 +30,9 @@ function isLookupNotFound(error: unknown): boolean {
 export function describeError(error: unknown): string {
   if (error instanceof BeeResponseError) {
     const request = `${error.method?.toUpperCase() ?? 'request'} ${error.url ?? ''}`;
-    return error.status ? `${request} answered ${error.status}` : `${request} failed: ${error.message}`;
+    return error.status
+      ? `${request} answered ${error.status}: ${error.message}`
+      : `${request} failed: ${error.message}`;
   }
   return error instanceof Error ? error.message : String(error);
 }
