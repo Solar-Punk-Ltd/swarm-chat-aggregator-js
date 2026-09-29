@@ -122,6 +122,16 @@ its name. A `.env` file in the working directory is read when it is there.
 | `CHECKPOINT_DIR`        | `./checkpoints` | where the checkpoints and the lock live, a volume in a container                     |
 | `HEALTH_PORT`           | `3000`          | the port of `GET /health`                                                            |
 
+Seven settings replace variables of the 6.x server, which are no longer read:
+
+- `LISTEN_BEE_URL` replaces `GSOC_BEE_URL`.
+- `WRITE_BEE_URL` replaces `CHAT_BEE_URL`.
+- `FEED_KEY` replaces `CHAT_KEY`.
+- `WRITE_STAMP` replaces `CHAT_STAMP`.
+- `GSOC_KEY` replaces `GSOC_RESOURCE_ID`.
+- `GSOC_IDENTIFIER` replaces `GSOC_TOPIC`.
+- `HEALTH_PORT` replaces `PORT`.
+
 The per-sender rate is weak, because a key costs nothing. The per-chat rate and the writing gateway's own
 per-IP limit are the real brakes.
 
