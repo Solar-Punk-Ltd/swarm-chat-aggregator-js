@@ -31,8 +31,8 @@
     "test:docker": "node test/live/spike.mjs"
   },
   "dependencies": {
+    "@ethersphere/bee-js": "^13.1.0",
     "@solarpunkltd/swarm-chat-js": "^5.0.0",
-    "@ethersphere/bee-js": "^13.0.0",
     "dotenv": "^16.4.7",
     "p-queue": "^8.1.0"
   },
@@ -53,6 +53,7 @@
     "lint-staged": "^15.5.0",
     "prettier": "^2.8.8",
     "rimraf": "^6.0.1",
+    "swarm-chat-js-v7": "file:vendor/solarpunkltd-swarm-chat-js-7.0.0.tgz",
     "typescript": "^5.8.2"
   },
   "files": [
