@@ -22,7 +22,8 @@ export interface ChatFeed {
   writeSlot(index: number, payload: Uint8Array): Promise<SlotWrite>;
 }
 
-export function isNotFound(error: unknown): boolean {
+/** The head lookup's 404, which Bee gives for a feed with no update and for a lookup that failed alike. */
+function isLookupNotFound(error: unknown): boolean {
   return error instanceof BeeResponseError && error.status === 404;
 }
 
@@ -86,7 +87,7 @@ export class BeeChatFeed implements ChatFeed {
       const update = await reader.downloadPayload();
       return { kind: 'found', index: Number(update.feedIndex.toBigInt()) };
     } catch (error) {
-      return isNotFound(error) ? { kind: 'none' } : { kind: 'failed', error: describeError(error) };
+      return isLookupNotFound(error) ? { kind: 'none' } : { kind: 'failed', error: describeError(error) };
     }
   }
 
