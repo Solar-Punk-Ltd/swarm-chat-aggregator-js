@@ -95,8 +95,7 @@ export class GsocListener {
     return { ...this.state };
   }
 
-  /** Sends one heartbeat through the heartbeat node. Public so a test can send one on demand. */
-  async sendHeartbeat(): Promise<void> {
+  private async sendHeartbeat(): Promise<void> {
     if (this.stopped) {
       return;
     }
