@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, test } from 'vitest';
 
-import { SettingsError, isAllowedChat, parseSettings } from '../src/settings.js';
+import { SETTING_NAMES, SettingsError, isAllowedChat, parseSettings } from '../src/settings.js';
 import { testKey } from './helpers/harness.js';
 
 const valid = () => ({
@@ -58,5 +60,30 @@ describe('settings', () => {
       /^HEARTBEAT_STALE_MS/,
     );
     expect(problemsOf({ ...valid(), LOCK_REFRESH_MS: '5000', LOCK_STALE_MS: '9000' })[0]).toMatch(/^LOCK_STALE_MS/);
+  });
+});
+
+describe('documentation', () => {
+  test('the README table and .env.sample name exactly the settings the code reads', () => {
+    const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+    const table = [...readme.matchAll(/^\| `([A-Z_]+)`/gm)].map((match) => match[1]);
+    const sample = readFileSync(new URL('../.env.sample', import.meta.url), 'utf8')
+      .split('\n')
+      .map((line) => /^([A-Z_]+)=/.exec(line)?.[1])
+      .filter((name) => name !== undefined);
+    expect(table.sort()).toEqual([...SETTING_NAMES].sort());
+    expect(sample.sort()).toEqual([...SETTING_NAMES].sort());
+  });
+
+  test('the defaults in .env.sample are the defaults the code uses', () => {
+    const sample = Object.fromEntries(
+      readFileSync(new URL('../.env.sample', import.meta.url), 'utf8')
+        .split('\n')
+        .map((line) => /^([A-Z_]+)=(.+)$/.exec(line))
+        .filter((match) => match !== null)
+        .map((match) => [match[1], match[2]]),
+    );
+    const base = valid();
+    expect(parseSettings({ ...base, ...sample })).toEqual(parseSettings(base));
   });
 });
