@@ -25,9 +25,12 @@ message format is made in the library first.
 ## Rules that keep the feed safe
 
 - Never write a feed slot without reading it first, and never overwrite a slot holding bytes this server
-  did not write. A slot is empty only when two reads a few seconds apart answer 404.
+  did not write. A slot is absent only when two reads a few seconds apart answer 404 or 500.
 - Never resume a chat from Bee's head lookup alone, and never start a chat at slot 0 unless the lookup
   and two reads of slot 0 all say it is empty. The checkpoint is the primary record.
+- The checkpoint is written before its slot, recording the entry about to be written, and it is the only entry
+  ever written to that slot. A write that keeps failing stalls the chat, never frees its slot for another
+  message. Resuming from a checkpoint reads nothing from the feed.
 - A retry resends the identical entry bytes, never a rebuilt entry.
 - Never send a GSOC or feed write deferred.
 - Every Bee request carries its own timeout signal, because bee-js sets none.

@@ -26,32 +26,50 @@ describe('retries', () => {
     expect(rig.entry(1)).toBeUndefined();
   });
 
-  test('a write that landed but answered an error counts as written when the retry finds its own bytes', async () => {
+  test('a write that keeps failing stalls its slot and the queue behind it, and never gives the slot away', async () => {
     const server = await rig.startServer();
-    rig.writer.faults.writesLandThenFail = 3;
-    await rig.send(message({ text: 'landed after all' }));
-    await waitFor(() => server.stats.dropped.get('dead-letter') === 1, 5000, 'dead letter');
-    expect(server.healthReport().healthy).toBe(false);
-
-    await rig.send(message({ text: 'next' }));
-    await waitFor(() => server.stats.published === 2, 5000, 'both published');
-    expect(rig.entry(0)?.msg.text).toBe('landed after all');
-    expect(rig.entry(1)?.msg.text).toBe('next');
-    expect(server.healthReport().chats[0]?.failing).toBe(false);
-  });
-
-  test('a message given up on goes to the dead letter log and its slot goes to the next message', async () => {
-    const server = await rig.startServer();
-    rig.writer.faults.writeFailures = 3;
-    await rig.send(message({ text: 'lost' }));
-    await waitFor(() => server.stats.dropped.get('dead-letter') === 1, 5000, 'dead letter');
+    rig.writer.faults.writeFailures = 1_000_000;
+    await rig.send(message({ text: 'stuck' }));
+    await rig.send(message({ text: 'behind it' }));
+    await waitFor(() => (server.healthReport().chats[0]?.stall?.attempts ?? 0) >= 4, 5000, 'several attempts');
     const report = server.healthReport();
     expect(report.healthy).toBe(false);
-    expect(report.problems.join(' ')).toContain('slot 0');
+    expect(report.chats[0]?.stall).toMatchObject({ slot: 0 });
+    expect(report.chats[0]?.stall?.stuckSeconds).toBeGreaterThanOrEqual(0);
+    expect(report.chats[0]?.queued).toBe(1);
+    expect(server.stats.dropped.get('dead-letter')).toBeUndefined();
 
-    await rig.send(message({ text: 'kept' }));
-    await waitFor(() => server.stats.published === 1, 5000, 'published');
-    expect(rig.entry(0)?.msg.text).toBe('kept');
+    rig.writer.faults.writeFailures = 0;
+    await waitFor(() => server.stats.published === 2, 10_000, 'both published once Bee accepts writes');
+    expect(rig.entry(0)?.msg.text).toBe('stuck');
+    expect(rig.entry(1)?.msg.text).toBe('behind it');
+    expect(server.healthReport().chats[0]?.stall).toBeNull();
+  });
+
+  test('a write that landed but answered an error counts as written when the retry finds its own bytes', async () => {
+    const server = await rig.startServer();
+    rig.writer.faults.writesLandThenFail = 5;
+    await rig.send(message({ text: 'landed after all' }));
+    await rig.send(message({ text: 'next' }));
+    await waitFor(() => server.stats.published === 2, 10_000, 'both published');
+    expect(rig.entry(0)?.msg.text).toBe('landed after all');
+    expect(rig.entry(1)?.msg.text).toBe('next');
+  });
+
+  test('messages dropped past the queue limit are logged as dead letters with their ids', async () => {
+    const server = await rig.startServer({ QUEUE_LIMIT: '1' });
+    rig.writer.faults.writeFailures = 1_000_000;
+    const first = message({ text: 'stuck' });
+    const second = message({ text: 'queued' });
+    const third = message({ text: 'over the limit' });
+    await rig.send(first);
+    await waitFor(() => server.healthReport().chats[0]?.stall !== null, 5000, 'the stall');
+    await rig.send(second);
+    await rig.send(third);
+    await waitFor(() => server.stats.dropped.get('queue-full') === 1, 5000, 'queue full');
+    const deadLetters = rig.logs.filter((line) => line.includes('"deadLetter":true'));
+    expect(deadLetters).toHaveLength(1);
+    expect(deadLetters[0]).toContain(third.message.id);
   });
 
   test('a Bee request that never answers ends at the request timeout and is retried', async () => {

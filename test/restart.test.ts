@@ -43,15 +43,14 @@ describe('restart', () => {
     expect(rig.entry(2)?.msg.text).toBe('message 2');
   });
 
-  test('walks forward past a checkpoint that fell behind the feed', async () => {
+  test('a checkpoint that fell behind the feed blocks the chat at its next write instead of overwriting', async () => {
     await publish(2);
-    const checkpointDir = rig.checkpointDir;
     await writeFile(
-      join(checkpointDir, `${Topic.fromString(CHAT).toHex()}.json`),
-      JSON.stringify({ v: 1, topic: CHAT, index: 0, history: null }),
+      join(rig.checkpointDir, `${Topic.fromString(CHAT).toHex()}.json`),
+      JSON.stringify({ v: 2, topic: CHAT, index: 0, pending: null, history: null, rows: [] }),
     );
-    await publishOne();
-    await waitFor(() => rig.entry(2) !== undefined, 5000, 'slot 2');
+    const server = await publishOne();
+    await waitFor(() => server.healthReport().chats[0]?.state === 'blocked', 5000, 'blocked');
     expect(rig.entry(1)?.msg.text).toBe('message 1');
   });
 
@@ -129,6 +128,61 @@ describe('restart', () => {
     await rig.send(once);
     await waitFor(() => again.stats.dropped.get('duplicate') === 1, 5000, 'duplicate after restart');
     expect(rig.entry(1)).toBeUndefined();
+  });
+});
+
+describe('write-ahead checkpoint', () => {
+  test('resuming from a checkpoint reads no slot beyond the check before the next write', async () => {
+    await publish(3);
+    const readsBefore = rig.writer.requests.filter((request) => request.startsWith('GET /chunks')).length;
+    const server = await rig.startServer();
+    await rig.send(message({ text: 'after restart' }));
+    await waitFor(() => server.healthReport().chats[0]?.state === 'ready', 5000, 'resumed');
+    await waitFor(() => rig.entry(3) !== undefined, 5000, 'slot 3');
+    const reads = rig.writer.requests.filter((request) => request.startsWith('GET /chunks')).slice(readsBefore);
+    // One read of slot 3, and one more when it answers as absent: the check before the write, nothing else.
+    expect(reads.length).toBeLessThanOrEqual(2);
+  });
+
+  test('a restart after a crash with a write pending sends exactly that entry to its slot', async () => {
+    const server = await rig.startServer({ SHUTDOWN_DEADLINE_MS: '200' });
+    rig.writer.faults.writeFailures = 1_000_000;
+    const pending = message({ text: 'pending at the crash' });
+    await rig.send(pending);
+    await waitFor(() => server.healthReport().chats[0]?.stall !== null, 5000, 'the stall');
+    await server.stop();
+
+    rig.writer.faults.writeFailures = 0;
+    const restarted = await rig.startServer();
+    await rig.send(message({ text: 'after the restart' }));
+    await waitFor(() => restarted.stats.published === 2, 5000, 'both published');
+    expect(rig.entry(0)?.msg).toEqual(pending.message);
+    expect(rig.entry(1)?.msg.text).toBe('after the restart');
+  });
+
+  test('a restart after a write that landed, before its checkpoint caught up, resends the same bytes once', async () => {
+    const server = await rig.startServer({ SHUTDOWN_DEADLINE_MS: '200' });
+    rig.writer.faults.writesLandThenFail = 1_000_000;
+    await rig.send(message({ text: 'landed' }));
+    await waitFor(() => rig.swarm.slotPayload(rig.feedOwner, CHAT, 0) !== undefined, 5000, 'the write landing');
+    const landed = rig.swarm.slotPayload(rig.feedOwner, CHAT, 0);
+    await server.stop();
+
+    rig.writer.faults.writesLandThenFail = 0;
+    const restarted = await rig.startServer();
+    await rig.send(message({ text: 'next' }));
+    await waitFor(() => restarted.stats.published === 2, 5000, 'both published');
+    expect(rig.swarm.slotPayload(rig.feedOwner, CHAT, 0)).toEqual(landed);
+    expect(rig.entry(1)?.msg.text).toBe('next');
+  });
+
+  test('a damaged checkpoint blocks the chat loudly and never starts it at 0', async () => {
+    await writeFile(join(rig.checkpointDir, `${Topic.fromString(CHAT).toHex()}.json`), '{"v":2,"topic":"chat-te');
+    const server = await publishOne();
+    await waitFor(() => server.healthReport().chats[0]?.state === 'blocked', 5000, 'blocked');
+    expect(server.healthReport().problems.join(' ')).toContain('checkpoint');
+    expect(rig.writer.socWrites).toBe(0);
+    expect(rig.logs.some((line) => line.startsWith('error') && line.includes('checkpoint'))).toBe(true);
   });
 });
 

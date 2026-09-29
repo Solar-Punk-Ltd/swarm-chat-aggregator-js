@@ -16,6 +16,7 @@ import {
   type UploadedHistoryFile,
 } from './history.js';
 import { Intake } from './intake.js';
+import { findHeadWithoutCheckpoint } from './newChat.js';
 import type { Logger } from './libs/logger.js';
 import { GsocListener } from './listener.js';
 import { FolderLock } from './lock.js';
@@ -162,7 +163,10 @@ export class AggregatorServer {
     const chats = [...this.chats.values()].map((chat) => {
       const health = chat.health();
       if (health.failing) {
-        problems.push(`chat ${health.topic}: ${health.lastError ?? health.state}`);
+        const stall = health.stall
+          ? `, slot ${health.stall.slot} stuck for ${health.stall.stuckSeconds} s after ${health.stall.attempts} attempts`
+          : '';
+        problems.push(`chat ${health.topic}: ${health.lastError ?? health.state}${stall}`);
       }
       return { ...health, secondsSinceLastPublish: age(health.lastPublishAt) };
     });
@@ -227,6 +231,7 @@ export class AggregatorServer {
       },
       this.stats,
       this.logger,
+      findHeadWithoutCheckpoint,
     );
     this.chats.set(topic, chat);
     chat.start();
