@@ -3,9 +3,12 @@
 import { randomUUID } from 'node:crypto';
 
 import { PrivateKey } from '@ethersphere/bee-js';
-import { createChatMessage, encodeChatMessage } from 'swarm-chat-js-v7/message';
+import { createChatMessage, encodeChatMessage, parseChatMessage } from 'swarm-chat-js-v7/message';
 
 export const PayloadFormat = { V6: 'v6', V7: 'v7' };
+
+/** The library's own wire check, for the bed's tests. */
+export { parseChatMessage };
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
