@@ -351,14 +351,14 @@ export class Cluster {
     mkdirSync(dir, { recursive: true });
     for (const [role, name] of Object.entries(this.names)) saveContainerLog(name, join(dir, `${role}.log`));
     for (const role of ['queen', 'worker']) {
-      for (const endpoint of ['status', 'topology']) {
+      for (const endpoint of ['status', 'status/peers', 'topology']) {
         let body;
         try {
           body = JSON.stringify(await httpJson(`${this.url(role)}/${endpoint}`, { timeoutMs: 10_000 }), null, 2);
         } catch (error) {
           body = `could not be read: ${error.message}`;
         }
-        writeFileSync(join(dir, `${role}-${endpoint}.json`), `${body}\n`);
+        writeFileSync(join(dir, `${role}-${endpoint.replace('/', '-')}.json`), `${body}\n`);
       }
     }
     return dir;
