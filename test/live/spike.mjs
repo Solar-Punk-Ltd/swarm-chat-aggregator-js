@@ -1,0 +1,106 @@
+// Spike: does a given Bee release run on fdp-play's local chain with fdp-play's node settings?
+// For each version it starts the chain and two full nodes, buys a stamp, and sends one GSOC message
+// through the worker to a listener on the queen. Correctness is asserted, timings are only printed.
+import { randomBytes } from 'node:crypto';
+
+import { Bee, Identifier } from '@ethersphere/bee-js';
+
+import { Cluster, httpJson, removeLeftovers, waitFor } from './cluster.mjs';
+
+const BEE_VERSIONS = (process.env.BED_BEE_VERSIONS ?? '2.8.2,2.6.0').split(',').map((v) => v.trim());
+const STAMP_DEPTH = 20;
+const STAMP_DAYS = 7;
+const BLOCK_SECONDS = 5;
+
+const observations = [];
+const log = (line) => console.log(`[bed] ${line}`);
+
+async function timed(label, step) {
+  const started = Date.now();
+  const value = await step();
+  observations.push(`${label}: ${Date.now() - started} ms`);
+  return value;
+}
+
+async function buyStamp(url) {
+  const { currentPrice } = await httpJson(`${url}/chainstate`);
+  const amount = BigInt(currentPrice) * BigInt((STAMP_DAYS * 86_400) / BLOCK_SECONDS) + 1n;
+  log(`stamp: price ${currentPrice} per block, amount ${amount}, depth ${STAMP_DEPTH}`);
+  const { batchID } = await httpJson(`${url}/stamps/${amount}/${STAMP_DEPTH}`, { method: 'POST', timeoutMs: 180_000 });
+  await waitFor('the stamp to become usable', async () => (await httpJson(`${url}/stamps/${batchID}`)).usable, {
+    timeoutMs: 300_000,
+  });
+  return batchID;
+}
+
+function receiveOne(bee, address, identifier) {
+  let subscription;
+  const received = new Promise((resolve, reject) => {
+    subscription = bee.messaging.gsocSubscribe(address, identifier, {
+      onMessage: (message) => resolve(message.toUtf8()),
+      onError: (error) => reject(error),
+      onClose: () => reject(new Error('the GSOC subscription closed before a message arrived')),
+    });
+  });
+  return { received, cancel: () => subscription.cancel() };
+}
+
+async function gsocRoundTrip(cluster, batchId) {
+  const listener = new Bee(cluster.url('queen'));
+  const sender = new Bee(cluster.url('worker'));
+  const { overlay } = await httpJson(`${cluster.url('queen')}/addresses`);
+  const identifier = Identifier.fromString(`bed-spike-${cluster.runId}`);
+  const key = await timed('mine the GSOC key', () => listener.messaging.gsocMine(overlay, identifier));
+
+  const { received, cancel } = receiveOne(listener, key.publicKey().address(), identifier);
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  const payload = `spike ${randomBytes(8).toString('hex')}`;
+  try {
+    await sender.messaging.gsocSend(batchId, key, identifier, payload);
+    const got = await timed('GSOC delivery', () =>
+      Promise.race([
+        received,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('no GSOC message within 60 s')), 60_000)),
+      ]),
+    );
+    if (got !== payload)
+      throw new Error(`the listener received ${JSON.stringify(got)}, expected ${JSON.stringify(payload)}`);
+  } finally {
+    cancel();
+  }
+}
+
+async function spike(beeVersion) {
+  const runId = randomBytes(4).toString('hex');
+  const cluster = new Cluster({ beeVersion, runId, log });
+  log(`=== Bee ${beeVersion}, run ${runId}`);
+  try {
+    await timed(`${beeVersion} cluster up`, () => cluster.start());
+    for (const role of ['queen', 'worker']) {
+      const { version, apiVersion } = await httpJson(`${cluster.url(role)}/health`);
+      log(`${role} reports version ${version}, API ${apiVersion}`);
+    }
+    const batchId = await timed(`${beeVersion} stamp usable`, () => buyStamp(cluster.url('worker')));
+    await gsocRoundTrip(cluster, batchId);
+    log(`PASS Bee ${beeVersion}: started on fdp-play's chain, bought a stamp, delivered a GSOC message`);
+    return true;
+  } catch (error) {
+    log(`FAIL Bee ${beeVersion}: ${error.stack ?? error}`);
+    for (const role of ['queen', 'worker', 'chain'])
+      log(`--- last log lines of ${role}\n${cluster.containerLogs(role)}`);
+    return false;
+  } finally {
+    cluster.stop();
+  }
+}
+
+removeLeftovers();
+const results = {};
+for (const version of BEE_VERSIONS) results[version] = await spike(version);
+
+console.log('\n[bed] observations, none of them asserted');
+for (const line of observations) console.log(`[bed]   ${line}`);
+console.log('\n[bed] result');
+for (const [version, passed] of Object.entries(results))
+  console.log(`[bed]   Bee ${version}: ${passed ? 'PASS' : 'FAIL'}`);
+process.exit(Object.values(results).every(Boolean) ? 0 : 1);

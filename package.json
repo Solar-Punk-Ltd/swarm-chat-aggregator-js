@@ -27,7 +27,8 @@
     "lint": "eslint . --ext .ts --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "npm run lint -- --fix",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm build && node --test \"dist/**/*.test.js\""
+    "test": "pnpm build && node --test \"dist/**/*.test.js\"",
+    "test:docker": "node test/live/spike.mjs"
   },
   "dependencies": {
     "@solarpunkltd/swarm-chat-js": "^5.0.0",
