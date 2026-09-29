@@ -607,7 +607,7 @@ packages:
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
 
   '@solarpunkltd/swarm-chat-js@file:vendor/solarpunkltd-swarm-chat-js-7.0.0.tgz':
-    resolution: {integrity: sha512-KWrHg+5lILpyEfpgQATovbkBEl2uNVcWYxHF7qVfRa2pJYqgcf0PeOI5T0MSx/eU/6YflM98AC+AAyhkvfLxWQ==, tarball: file:vendor/solarpunkltd-swarm-chat-js-7.0.0.tgz}
+    resolution: {integrity: sha512-3rhuaH9uBmpdFg4iWhkgxhGMmCRq2nKS6gh0LWUQl+6iU51RTZAIjyRJ95A46zzP2I8RLbVG+romzLSZXNVmLQ==, tarball: file:vendor/solarpunkltd-swarm-chat-js-7.0.0.tgz}
     version: 7.0.0
     engines: {node: '>=24'}
     peerDependencies:
