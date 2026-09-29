@@ -44,37 +44,40 @@ const topicPattern = z
   });
 
 /** Every setting the server reads, by the environment variable that carries it. */
-const environmentSchema = z
-  .object({
-    LISTEN_BEE_URL: url,
-    WRITE_BEE_URL: url,
-    HEARTBEAT_BEE_URL: url,
-    WRITE_STAMP: hex(64),
-    HEARTBEAT_STAMP: hex(64),
-    FEED_KEY: hex(64),
-    GSOC_KEY: hex(64),
-    GSOC_IDENTIFIER: z.string().min(1),
-    CHAT_TOPICS: topicList,
-    CHAT_TOPIC_PATTERN: topicPattern,
-    MAX_ACTIVE_CHATS: count(50),
-    RATE_WINDOW_MS: milliseconds(MINUTE),
-    RATE_PER_CHAT: count(600),
-    RATE_PER_SENDER: count(30),
-    QUEUE_LIMIT: count(500),
-    RESUBSCRIBE_IDLE_MS: milliseconds(3 * MINUTE),
-    HEARTBEAT_INTERVAL_MS: milliseconds(MINUTE),
-    HEARTBEAT_STALE_MS: milliseconds(3 * MINUTE),
-    READ_RECHECK_MS: milliseconds(3 * SECOND),
-    REQUEST_TIMEOUT_MS: milliseconds(30 * SECOND),
-    RESUME_RETRY_MS: milliseconds(30 * SECOND),
-    PUBLISH_ATTEMPTS: count(6),
-    RETRY_BASE_MS: milliseconds(SECOND),
-    SHUTDOWN_DEADLINE_MS: milliseconds(20 * SECOND),
-    LOCK_REFRESH_MS: milliseconds(5 * SECOND),
-    LOCK_STALE_MS: milliseconds(MINUTE),
-    CHECKPOINT_DIR: z.string().min(1).default('./checkpoints'),
-    HEALTH_PORT: z.coerce.number().int().min(0).max(65_535).default(3000),
-  })
+const environmentShape = z.object({
+  LISTEN_BEE_URL: url,
+  WRITE_BEE_URL: url,
+  HEARTBEAT_BEE_URL: url,
+  WRITE_STAMP: hex(64),
+  HEARTBEAT_STAMP: hex(64),
+  FEED_KEY: hex(64),
+  GSOC_KEY: hex(64),
+  GSOC_IDENTIFIER: z.string().min(1),
+  CHAT_TOPICS: topicList,
+  CHAT_TOPIC_PATTERN: topicPattern,
+  MAX_ACTIVE_CHATS: count(50),
+  RATE_WINDOW_MS: milliseconds(MINUTE),
+  RATE_PER_CHAT: count(600),
+  RATE_PER_SENDER: count(30),
+  QUEUE_LIMIT: count(500),
+  RESUBSCRIBE_IDLE_MS: milliseconds(3 * MINUTE),
+  HEARTBEAT_INTERVAL_MS: milliseconds(MINUTE),
+  HEARTBEAT_STALE_MS: milliseconds(3 * MINUTE),
+  READ_RECHECK_MS: milliseconds(3 * SECOND),
+  REQUEST_TIMEOUT_MS: milliseconds(30 * SECOND),
+  RESUME_RETRY_MS: milliseconds(30 * SECOND),
+  PUBLISH_ATTEMPTS: count(6),
+  RETRY_BASE_MS: milliseconds(SECOND),
+  SHUTDOWN_DEADLINE_MS: milliseconds(20 * SECOND),
+  LOCK_REFRESH_MS: milliseconds(5 * SECOND),
+  LOCK_STALE_MS: milliseconds(MINUTE),
+  CHECKPOINT_DIR: z.string().min(1).default('./checkpoints'),
+  HEALTH_PORT: z.coerce.number().int().min(0).max(65_535).default(3000),
+});
+
+export const SETTING_NAMES = Object.keys(environmentShape.shape);
+
+const environmentSchema = environmentShape
   .refine((env) => env.CHAT_TOPICS.length > 0 || env.CHAT_TOPIC_PATTERN !== undefined, {
     message: 'set CHAT_TOPICS, CHAT_TOPIC_PATTERN or both',
     path: ['CHAT_TOPICS'],
