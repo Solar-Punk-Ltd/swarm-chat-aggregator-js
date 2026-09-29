@@ -3,7 +3,7 @@ import { createWriteStream, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { waitFor } from './cluster.mjs';
+import { WaitAbandoned, waitFor } from './cluster.mjs';
 
 export const ServerKind = { MASTER: 'master', EVENT: 'event' };
 
@@ -80,7 +80,9 @@ export class ServerProcess {
     await waitFor(
       'the server to answer on its health port',
       async () => {
-        if (this.child.exitCode !== null) throw new Error(`the server exited with code ${this.child.exitCode}`);
+        if (this.child.exitCode !== null) {
+          throw new WaitAbandoned(`the server exited with code ${this.child.exitCode}. Its log:\n${this.logTail()}`);
+        }
         const response = await fetch(`http://127.0.0.1:${this.settings.port}/health`, {
           signal: AbortSignal.timeout(2000),
         });

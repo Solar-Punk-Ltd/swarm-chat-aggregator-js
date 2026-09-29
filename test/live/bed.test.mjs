@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { WaitAbandoned, waitFor } from './cluster.mjs';
 import { FeedFollower } from './feed.mjs';
 import { FeedLedger, isClean } from './ledger.mjs';
 import { parseChatMessage, PayloadFormat, payloadsFor, randomKey } from './payloads.mjs';
@@ -155,5 +156,40 @@ describe('GsocSender', () => {
     }).send({ id: 'a', bytes: new Uint8Array([1]) });
     assert.equal(outcome, SendOutcome.SENT);
     assert.equal(messaging.sent.length, 1);
+  });
+});
+
+describe('waitFor', () => {
+  it('retries a probe that throws an ordinary error until it answers', async () => {
+    let calls = 0;
+    const value = await waitFor(
+      'a flaky answer',
+      async () => {
+        calls++;
+        if (calls < 3) throw new Error('not yet');
+        return 'answered';
+      },
+      { timeoutMs: 5000, intervalMs: 1 },
+    );
+    assert.equal(value, 'answered');
+    assert.equal(calls, 3);
+  });
+
+  it('stops at once when the probe says there is nothing left to wait for', async () => {
+    let calls = 0;
+    const started = Date.now();
+    await assert.rejects(
+      waitFor(
+        'a container that exited',
+        async () => {
+          calls++;
+          throw new WaitAbandoned('the container exited');
+        },
+        { timeoutMs: 60_000, intervalMs: 1000 },
+      ),
+      /the container exited/,
+    );
+    assert.equal(calls, 1);
+    assert.ok(Date.now() - started < 1000);
   });
 });
