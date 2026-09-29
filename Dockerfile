@@ -1,34 +1,42 @@
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
-RUN npm install -g pnpm
+RUN corepack enable
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY vendor ./vendor
 
 RUN pnpm install --frozen-lockfile
 
-COPY . .
+COPY tsconfig.json tsconfig.build.json ./
+COPY src ./src
 
-RUN pnpm build
+RUN pnpm build && pnpm prune --prod --ignore-scripts
 
-FROM node:22-alpine AS production
+FROM node:24-alpine AS production
 
 WORKDIR /app
+ENV NODE_ENV=production
 
-RUN npm install -g pnpm
-
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-
-RUN pnpm install --frozen-lockfile --prod --ignore-scripts
-
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 
 RUN addgroup -g 1001 -S nodejs && \
-  adduser -S aggregator -u 1001
-
-RUN chown -R aggregator:nodejs /app
+  adduser -S aggregator -u 1001 -G nodejs && \
+  mkdir -p /app/checkpoints && \
+  chown -R aggregator:nodejs /app/checkpoints
 
 USER aggregator
 
-CMD ["pnpm", "start"]
+ENV CHECKPOINT_DIR=/app/checkpoints
+VOLUME ["/app/checkpoints"]
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.HEALTH_PORT || 3000) + '/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+
+# node itself is the first process, so SIGTERM from docker stop reaches the drain.
+CMD ["node", "dist/index.js"]
