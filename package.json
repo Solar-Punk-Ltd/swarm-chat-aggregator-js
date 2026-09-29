@@ -27,7 +27,7 @@
     "lint": "eslint . --ext .ts --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "npm run lint -- --fix",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm build && node --test \"dist/**/*.test.js\"",
+    "test": "pnpm build && node --test \"dist/**/*.test.js\" test/live/bed.test.mjs",
     "test:docker": "node test/live/spike.mjs"
   },
   "dependencies": {
