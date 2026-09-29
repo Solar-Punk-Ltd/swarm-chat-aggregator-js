@@ -34,6 +34,21 @@ export function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * What a failed slot read says about the slot, the one place that reads Bee's answers. A 404 is a candidate
+ * for empty, which `readSlot` confirms with a second read. Every other transport failure is a BeeResponseError
+ * and says nothing about the slot. Anything else was thrown checking the chunk that came back, so the slot holds
+ * something that is not an update of this feed.
+ */
+export function slotReadFromError(error: unknown): SlotRead {
+  if (isNotFound(error)) {
+    return { kind: 'empty' };
+  }
+  return error instanceof BeeResponseError
+    ? { kind: 'failed', error: describeError(error) }
+    : { kind: 'unreadable', error: describeError(error) };
+}
+
 export class BeeChatFeed implements ChatFeed {
   private readonly topic: Topic;
   private readonly signer: PrivateKey;
@@ -91,13 +106,7 @@ export class BeeChatFeed implements ChatFeed {
       const update = await reader.downloadPayload({ index: slotIndex(index) });
       return { kind: 'found', payload: update.payload.toUint8Array() };
     } catch (error) {
-      if (isNotFound(error)) {
-        return { kind: 'empty' };
-      }
-      // Every transport failure is a BeeResponseError. Anything else was thrown checking the chunk that came back.
-      return error instanceof BeeResponseError
-        ? { kind: 'failed', error: describeError(error) }
-        : { kind: 'unreadable', error: describeError(error) };
+      return slotReadFromError(error);
     }
   }
 }
