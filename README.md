@@ -96,6 +96,11 @@ seconds since the last frame, since the last heartbeat sent and received, the la
 each chat's state, next slot, queue depth, last publish and any stalled slot, and the counts of received,
 published and dropped messages by reason.
 
+After a restart, look at each chat's `historyLost`. It is the one thing that goes wrong without turning `/health`
+red: it names a history file the chat could not download, so viewers loading older messages stop at that file,
+while the chat itself keeps publishing. A chat that works should not read 503 for the rest of the process, which
+is why it is a field and not a problem.
+
 ### Shutdown
 
 On `SIGTERM` or `SIGINT` the server stops taking messages and spends up to `SHUTDOWN_DEADLINE_MS` publishing
