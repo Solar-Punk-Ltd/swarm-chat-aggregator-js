@@ -56,6 +56,10 @@ const FDP_PLAY = {
     'api-addr': '0.0.0.0:1633',
     'cors-allowed-origins': '*',
     'allow-private-cidrs': 'true',
+    // Bee 2.8 no longer looks the token up from the postage contract on a chain it does not know, and refuses
+    // to start without it. fdp-play's own node settings predate that, so the address comes from its
+    // orchestrator/contract-addresses.json at 3.3.0. Bee 2.6 has no such option and ignores the variable.
+    'bzz-token-address': '0xe78A0F7E598Cc8b0Bb87894B0F60dD2a88d6a8Ab',
   }),
 };
 
