@@ -289,10 +289,11 @@ export class ChatPublisher {
       throw new ResumeError(`head lookup: ${head.error}`);
     }
     const first = await this.feed.readSlot(0);
-    if (first.kind === 'failed') {
-      throw new ResumeError(`slot 0 after a 404 lookup: ${first.error}`);
+    if (first.kind === 'empty') {
+      return -1;
     }
-    return first.kind === 'found' ? 0 : -1;
+    this.entryOrThrow(0, first, 'slot 0 after a 404 lookup');
+    return 0;
   }
 
   private async readEntry(index: number, what: string): Promise<FeedEntry> {
