@@ -80,7 +80,7 @@ export class AggregatorServer {
     );
     this.writeBee = new Bee(settings.writeBeeUrl);
     this.listenBee = new Bee(settings.listenBeeUrl);
-    this.historyStore = new BeeHistoryStore(this.writeBee, settings.writeStamp, settings.requestTimeoutMs);
+    this.historyStore = new BeeHistoryStore(this.writeBee, settings.writeStamp, settings.historyTimeoutMs);
     this.intake = new Intake(
       settings.allowedChats,
       settings.rates,
@@ -289,7 +289,10 @@ export class AggregatorServer {
   }
 }
 
-/** History files as ordinary Swarm data at today's redundancy level, uploaded directly and never deferred. */
+/**
+ * History files as ordinary Swarm data at today's redundancy level, uploaded directly and never deferred. A direct
+ * upload answers only once every chunk and its parity is pushed, so a file gets its own timeout, not a chunk's.
+ */
 export class BeeHistoryStore implements HistoryStore {
   constructor(
     private readonly bee: Bee,
