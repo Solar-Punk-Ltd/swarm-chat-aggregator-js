@@ -1,39 +1,27 @@
-export class Logger {
-  private static instance: Logger;
-
-  private constructor() {}
-
-  public static getInstance(): Logger {
-    if (!Logger.instance) {
-      Logger.instance = new Logger();
-    }
-    return Logger.instance;
-  }
-
-  private formatMessage(level: string, ...args: any[]): string {
-    const timestamp = new Date().toISOString();
-    return `[${timestamp}] [${level.toUpperCase()}] - ${args
-      .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : arg))
-      .join(' ')}`;
-  }
-
-  log(...args: any[]): void {
-    console.log(this.formatMessage('log', ...args));
-  }
-
-  info(...args: any[]): void {
-    console.info(this.formatMessage('info', ...args));
-  }
-
-  warn(...args: any[]): void {
-    console.warn(this.formatMessage('warn', ...args));
-  }
-
-  error(...args: any[]): void {
-    console.error(this.formatMessage('error', ...args));
-  }
-
-  debug(...args: any[]): void {
-    console.debug(this.formatMessage('debug', ...args));
-  }
+export interface Logger {
+  info(...args: unknown[]): void;
+  warn(...args: unknown[]): void;
+  error(...args: unknown[]): void;
+  debug(...args: unknown[]): void;
 }
+
+function formatMessage(level: string, args: unknown[]): string {
+  const timestamp = new Date().toISOString();
+  return `[${timestamp}] [${level.toUpperCase()}] - ${args
+    .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg)))
+    .join(' ')}`;
+}
+
+export const consoleLogger: Logger = {
+  info: (...args) => console.info(formatMessage('info', args)),
+  warn: (...args) => console.warn(formatMessage('warn', args)),
+  error: (...args) => console.error(formatMessage('error', args)),
+  debug: (...args) => console.debug(formatMessage('debug', args)),
+};
+
+export const silentLogger: Logger = {
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+  debug: () => undefined,
+};
