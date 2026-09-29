@@ -1,4 +1,4 @@
-import { rm, utimes, writeFile } from 'node:fs/promises';
+import { readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { Bee, FeedIndex, Topic } from '@ethersphere/bee-js';
@@ -224,6 +224,20 @@ describe('write-ahead checkpoint', () => {
     await waitFor(() => restarted.stats.published === 2, 5000, 'both published');
     expect(rig.swarm.slotPayload(rig.feedOwner, CHAT, 0)).toEqual(landed);
     expect(rig.entry(1)?.msg.text).toBe('next');
+  });
+
+  test('a history save that finishes after the stop does not write the checkpoint', async () => {
+    const server = await rig.startServer({ SHUTDOWN_DEADLINE_MS: '100' });
+    rig.writer.faults.dataUploadDelayMs = 600;
+    await rig.send(message({ text: 'saved late' }));
+    await waitFor(() => server.stats.published === 1, 5000, 'published');
+    await waitFor(() => server.healthReport().chats[0]?.historySaving === true, 5000, 'the save running');
+    await server.stop();
+    const path = join(rig.checkpointDir, `${Topic.fromString(CHAT).toHex()}.json`);
+    const atStop = await readFile(path, 'utf8');
+    await waitFor(() => rig.swarm.data.size === 1, 5000, 'the late save landing');
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(await readFile(path, 'utf8')).toBe(atStop);
   });
 
   test('a damaged checkpoint blocks the chat loudly and never starts it at 0', async () => {
