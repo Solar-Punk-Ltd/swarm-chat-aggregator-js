@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { Topic } from '@ethersphere/bee-js';
 import { z } from 'zod';
 
-import { historyLinkSchema } from './feed/entry.js';
+import { historyLinkSchema } from '@solarpunkltd/swarm-chat-js/message';
 
 const checkpointSchema = z.strictObject({
   v: z.literal(1),

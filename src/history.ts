@@ -1,24 +1,24 @@
-import { z } from 'zod';
+import {
+  type HistoryFile,
+  type HistoryLink,
+  type HistoryRow,
+  MESSAGE_VERSION,
+} from '@solarpunkltd/swarm-chat-js/message';
 
-import { type HistoryLink, type HistoryRow, historyLinkSchema, historyRowSchema } from './feed/entry.js';
-import { MESSAGE_VERSION } from '@solarpunkltd/swarm-chat-js/message';
+/** A history file as the server uploads it, the shape the library's historyFileSchema reads. */
+export type UploadedHistoryFile = {
+  v: typeof MESSAGE_VERSION;
+  topic: string;
+  fromSeq: number;
+  toSeq: number;
+  messages: HistoryRow[];
+  prev: HistoryLink | null;
+};
 
-export const historyFileSchema = z.strictObject({
-  v: z.literal(MESSAGE_VERSION),
-  topic: z.string(),
-  fromSeq: z.number().int().nonnegative(),
-  toSeq: z.number().int().nonnegative(),
-  messages: z.array(historyRowSchema),
-  prev: historyLinkSchema.nullable(),
-});
-
-/** One chat's history file as it is uploaded. `prev` links the file it follows once one closed. */
-export type HistoryFile = z.infer<typeof historyFileSchema>;
-
-/** Uploads and downloads history files as ordinary Swarm data. */
+/** Uploads history files as ordinary Swarm data, and reads one back as the library checks it. */
 export interface HistoryStore {
-  upload(file: HistoryFile): Promise<string>;
-  download(ref: string): Promise<HistoryFile>;
+  upload(file: UploadedHistoryFile): Promise<string>;
+  download(link: HistoryLink, topic: string): Promise<HistoryFile>;
 }
 
 export type HistoryLimits = { maxMessages: number; maxBytes: number };
@@ -68,8 +68,8 @@ export class HistoryBook {
     if (saved) {
       this.current = {
         fromSeq: saved.file.fromSeq,
-        rows: [...saved.file.messages],
-        rowBytes: saved.file.messages.reduce((sum, row) => sum + rowSize(row), 0),
+        rows: [...saved.file.rows],
+        rowBytes: saved.file.rows.reduce((sum, row) => sum + rowSize(row), 0),
         prev: saved.file.prev,
         savedAs: saved.link,
       };
@@ -154,7 +154,7 @@ export class HistoryBook {
     }
   }
 
-  private snapshot(file: OpenFile): HistoryFile {
+  private snapshot(file: OpenFile): UploadedHistoryFile {
     const rows = [...file.rows];
     return {
       v: MESSAGE_VERSION,

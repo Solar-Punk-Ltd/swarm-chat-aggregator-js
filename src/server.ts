@@ -2,18 +2,18 @@ import { type AddressInfo } from 'node:net';
 import * as http from 'node:http';
 
 import { Bee, RedundancyLevel } from '@ethersphere/bee-js';
+import { type HistoryFile, type HistoryLink, parseHistoryFile } from '@solarpunkltd/swarm-chat-js/message';
 
 import { type ChatHealth, ChatPublisher } from './chat.js';
 import { CheckpointStore } from './checkpoint.js';
 import { BeeChatFeed, describeError } from './feed/slots.js';
 import { SentNonces } from './heartbeat.js';
 import {
-  type HistoryFile,
   type HistoryLimits,
   HistoryBook,
   type HistoryStore,
   type SaveOutcome,
-  historyFileSchema,
+  type UploadedHistoryFile,
 } from './history.js';
 import { Intake } from './intake.js';
 import type { Logger } from './libs/logger.js';
@@ -277,7 +277,7 @@ export class BeeHistoryStore implements HistoryStore {
     private readonly timeoutMs: number,
   ) {}
 
-  async upload(file: HistoryFile): Promise<string> {
+  async upload(file: UploadedHistoryFile): Promise<string> {
     const result = await this.bee.data.upload(
       this.stamp,
       new TextEncoder().encode(JSON.stringify(file)),
@@ -290,8 +290,12 @@ export class BeeHistoryStore implements HistoryStore {
     return result.reference.toHex();
   }
 
-  async download(ref: string): Promise<HistoryFile> {
-    const data = await this.bee.data.download(ref, undefined, { signal: AbortSignal.timeout(this.timeoutMs) });
-    return historyFileSchema.parse(data.toJSON());
+  async download(link: HistoryLink, topic: string): Promise<HistoryFile> {
+    const data = await this.bee.data.download(link.ref, undefined, { signal: AbortSignal.timeout(this.timeoutMs) });
+    const file = parseHistoryFile(data.toUint8Array(), topic, link);
+    if (!file.ok) {
+      throw new Error(`history file ${link.ref} refused, ${file.reason}: ${file.detail}`);
+    }
+    return file.value;
   }
 }
