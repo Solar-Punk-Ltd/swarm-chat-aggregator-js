@@ -18,10 +18,3 @@ export const consoleLogger: Logger = {
   error: (...args) => console.error(formatMessage('error', args)),
   debug: (...args) => console.debug(formatMessage('debug', args)),
 };
-
-export const silentLogger: Logger = {
-  info: () => undefined,
-  warn: () => undefined,
-  error: () => undefined,
-  debug: () => undefined,
-};
