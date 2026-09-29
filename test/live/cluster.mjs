@@ -42,7 +42,8 @@ const FDP_PLAY = {
   beeOptions: (chainHost) => ({
     'warmup-time': '10s',
     'debug-api-enable': 'true',
-    verbosity: '4',
+    // Trace, so the pusher's and pushsync's path shows in the kept logs. fdp-play itself runs at 4, debug.
+    verbosity: '5',
     'swap-enable': 'true',
     mainnet: 'false',
     'swap-endpoint': `http://${chainHost}:9545`,
