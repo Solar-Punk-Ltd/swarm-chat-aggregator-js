@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -61,6 +62,8 @@ const FDP_PLAY = {
 /** Where both Bee's own Dockerfile and its release Dockerfile put the program, 2.6 to 2.8. */
 const BEE_PROGRAM = '/usr/local/bin/bee';
 const BEE_API_PORT = 1633;
+/** Bee's own default block time, which fdp-play leaves unset. */
+const BLOCK_SECONDS = 5;
 const CHAIN_RPC_PORT = 9545;
 
 function beeEnv(options) {
@@ -162,7 +165,7 @@ export class Cluster {
       );
     }
 
-    docker(['network', 'create', ...this.labels(), this.network]);
+    this.createNetwork();
     docker(['network', 'connect', this.network, this.self]);
 
     const fdpPlayQueen = `${FDP_PLAY.queenImage}:${FDP_PLAY.imageTag}`;
@@ -190,13 +193,26 @@ export class Cluster {
     const underlay = await this.underlayOf('queen');
     this.runBee('worker', images.worker, { ...options, bootnode: underlay });
     await this.waitHealthy('worker');
-    await waitFor(
-      'the queen to see the worker as a peer',
-      async () => (await httpJson(`${this.url('queen')}/peers`)).peers.length > 0,
-      {
-        timeoutMs: 180_000,
-      },
-    );
+    await this.waitPeered();
+  }
+
+  /**
+   * A network with a subnet of its own, because only such a network lets a container keep its address across a
+   * disconnect, and the worker and the server find the queen again only at the address they knew.
+   */
+  createNetwork() {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const prefix = `10.${200 + randomInt(50)}.${randomInt(256)}`;
+      const created = docker(['network', 'create', ...this.labels(), '--subnet', `${prefix}.0/24`, this.network], {
+        allowFailure: true,
+      });
+      if (created.status === 0) {
+        this.addresses = { queen: `${prefix}.10`, worker: `${prefix}.11` };
+        return;
+      }
+      if (!/overlap/i.test(created.stderr)) throw new Error(`docker network create failed: ${created.stderr}`);
+    }
+    throw new Error('every subnet tried for the cluster network overlapped one the daemon already has');
   }
 
   runBee(role, image, options) {
@@ -206,12 +222,49 @@ export class Cluster {
       ...this.labels(),
       '--network',
       this.network,
+      '--ip',
+      this.addresses[role],
       '--name',
       this.names[role],
       ...beeEnv(options),
       image,
       'start',
     ]);
+  }
+
+  /**
+   * Ends a node's connections without a close reaching the other side: the node leaves the network, stops while
+   * nothing can hear it, and comes back at the same address. A client of its API is left holding a socket that
+   * looks open and never carries anything again, which is what a gateway restart does to a listener.
+   */
+  async restartUnheard(role) {
+    docker(['network', 'disconnect', '-f', this.network, this.names[role]]);
+    docker(['container', 'stop', '-t', '10', this.names[role]]);
+    docker(['network', 'connect', '--ip', this.addresses[role], this.network, this.names[role]]);
+    docker(['container', 'start', this.names[role]]);
+    await this.waitHealthy(role);
+    await this.waitPeered();
+  }
+
+  async waitPeered() {
+    await waitFor(
+      'the queen and the worker to be peers',
+      async () => (await httpJson(`${this.url('queen')}/peers`)).peers.length > 0,
+      { timeoutMs: 180_000 },
+    );
+  }
+
+  /** A stamp on the worker, sized from the chain's current price to last `days`, once it is usable. */
+  async buyStamp({ depth = 20, days = 7 } = {}) {
+    const url = this.url('worker');
+    const { currentPrice } = await httpJson(`${url}/chainstate`);
+    const amount = BigInt(currentPrice) * BigInt((days * 86_400) / BLOCK_SECONDS) + 1n;
+    this.log(`stamp: price ${currentPrice} per block, amount ${amount}, depth ${depth}`);
+    const { batchID } = await httpJson(`${url}/stamps/${amount}/${depth}`, { method: 'POST', timeoutMs: 180_000 });
+    await waitFor('the stamp to become usable', async () => (await httpJson(`${url}/stamps/${batchID}`)).usable, {
+      timeoutMs: 300_000,
+    });
+    return batchID;
   }
 
   async chainBlockNumber() {

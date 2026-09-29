@@ -5,12 +5,9 @@ import { randomBytes } from 'node:crypto';
 
 import { Bee, Identifier } from '@ethersphere/bee-js';
 
-import { Cluster, httpJson, removeLeftovers, waitFor } from './cluster.mjs';
+import { Cluster, httpJson, removeLeftovers } from './cluster.mjs';
 
 const BEE_VERSIONS = (process.env.BED_BEE_VERSIONS ?? '2.8.2,2.6.0').split(',').map((v) => v.trim());
-const STAMP_DEPTH = 20;
-const STAMP_DAYS = 7;
-const BLOCK_SECONDS = 5;
 
 const observations = [];
 const log = (line) => console.log(`[bed] ${line}`);
@@ -20,17 +17,6 @@ async function timed(label, step) {
   const value = await step();
   observations.push(`${label}: ${Date.now() - started} ms`);
   return value;
-}
-
-async function buyStamp(url) {
-  const { currentPrice } = await httpJson(`${url}/chainstate`);
-  const amount = BigInt(currentPrice) * BigInt((STAMP_DAYS * 86_400) / BLOCK_SECONDS) + 1n;
-  log(`stamp: price ${currentPrice} per block, amount ${amount}, depth ${STAMP_DEPTH}`);
-  const { batchID } = await httpJson(`${url}/stamps/${amount}/${STAMP_DEPTH}`, { method: 'POST', timeoutMs: 180_000 });
-  await waitFor('the stamp to become usable', async () => (await httpJson(`${url}/stamps/${batchID}`)).usable, {
-    timeoutMs: 300_000,
-  });
-  return batchID;
 }
 
 function receiveOne(bee, address, identifier) {
@@ -56,7 +42,9 @@ async function gsocRoundTrip(cluster, batchId) {
   await new Promise((resolve) => setTimeout(resolve, 1000));
   const payload = `spike ${randomBytes(8).toString('hex')}`;
   try {
-    await sender.messaging.gsocSend(batchId, key, identifier, payload);
+    await sender.messaging.gsocSend(batchId, key, identifier, payload, undefined, {
+      signal: AbortSignal.timeout(30_000),
+    });
     const got = await timed('GSOC delivery', () =>
       Promise.race([
         received,
@@ -80,7 +68,7 @@ async function spike(beeVersion) {
       const { version, apiVersion } = await httpJson(`${cluster.url(role)}/health`);
       log(`${role} reports version ${version}, API ${apiVersion}`);
     }
-    const batchId = await timed(`${beeVersion} stamp usable`, () => buyStamp(cluster.url('worker')));
+    const batchId = await timed(`${beeVersion} stamp usable`, () => cluster.buyStamp());
     await gsocRoundTrip(cluster, batchId);
     log(`PASS Bee ${beeVersion}: started on fdp-play's chain, bought a stamp, delivered a GSOC message`);
     return true;

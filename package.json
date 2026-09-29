@@ -28,7 +28,7 @@
     "lint:fix": "npm run lint -- --fix",
     "typecheck": "tsc --noEmit",
     "test": "pnpm build && node --test \"dist/**/*.test.js\" test/live/bed.test.mjs",
-    "test:docker": "node test/live/spike.mjs"
+    "test:docker": "node test/live/spike.mjs && pnpm build && node test/live/bed.mjs --server master --format v6 --expect-fail B2,B3,B4"
   },
   "dependencies": {
     "@ethersphere/bee-js": "^13.1.0",
