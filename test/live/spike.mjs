@@ -20,16 +20,32 @@ async function timed(label, step) {
   return value;
 }
 
+/**
+ * One GSOC message on a subscription. A close or an error after cancel() is the cancel itself, not a failure, and the
+ * promise is marked handled, because a send that throws first leaves nobody awaiting it.
+ */
 function receiveOne(bee, address, identifier) {
   let subscription;
+  let cancelled = false;
   const received = new Promise((resolve, reject) => {
     subscription = bee.messaging.gsocSubscribe(address, identifier, {
       onMessage: (message) => resolve(message.toUtf8()),
-      onError: (error) => reject(error),
-      onClose: () => reject(new Error('the GSOC subscription closed before a message arrived')),
+      onError: (error) => {
+        if (!cancelled) reject(error);
+      },
+      onClose: () => {
+        if (!cancelled) reject(new Error('the GSOC subscription closed before a message arrived'));
+      },
     });
   });
-  return { received, cancel: () => subscription.cancel() };
+  received.catch(() => {});
+  return {
+    received,
+    cancel: () => {
+      cancelled = true;
+      subscription.cancel();
+    },
+  };
 }
 
 async function gsocRoundTrip(cluster, batchId) {
