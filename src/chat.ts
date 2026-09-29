@@ -47,6 +47,8 @@ export type ChatHealth = {
   lastError: string | null;
   failing: boolean;
   stall: Stall | null;
+  /** The chat started at slot 0 with no checkpoint, after its controls passed. */
+  startedWithoutCheckpoint: boolean;
   historySaving: boolean;
   history: HistoryLink | null;
 };
@@ -80,6 +82,7 @@ export class ChatPublisher {
   private readonly queuedIds = new Set<string>();
   private readonly publishedIds = new RecentIds(RECENT_ID_LIMIT);
   private lastPublishAt: number | null = null;
+  private startedWithoutCheckpoint = false;
   private lastError: string | null = null;
   private failing = false;
   private accepting = true;
@@ -191,6 +194,7 @@ export class ChatPublisher {
               attempts: this.stallAttempts,
             }
           : null,
+      startedWithoutCheckpoint: this.startedWithoutCheckpoint,
       historySaving: this.history.isSaving,
       history: this.history.newestLink,
     };
@@ -302,6 +306,12 @@ export class ChatPublisher {
   /** A chat with no checkpoint: `findHead`'s answer, then the walk forward from it. */
   private async resumeFromFeed(): Promise<void> {
     let head = await this.findHead(this.feed);
+    if (head < 0) {
+      this.startedWithoutCheckpoint = true;
+      this.logger.warn(
+        `[chat ${this.topic}] starting as a new chat at slot 0 without a checkpoint, after the lookup, both nodes and the peer check agreed it has no entries`,
+      );
+    }
     const entries = new Map<number, FeedEntry>();
     if (head >= 0) {
       entries.set(head, await this.readEntry(head, 'the slot the head was found at'));

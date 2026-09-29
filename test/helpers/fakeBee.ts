@@ -76,6 +76,10 @@ type Faults = {
   gsocDeaf: boolean;
   /** Requests to these paths never answer. */
   hang: RegExp | undefined;
+  ready: boolean;
+  connectedPeers: number;
+  /** /readiness and /topology answer this status instead. */
+  statusFailure: number | undefined;
 };
 
 /** One fake Bee node over real HTTP and a real websocket, backed by a FakeSwarm. */
@@ -92,6 +96,9 @@ export class FakeBeeNode {
     socWriteDelayMs: 0,
     gsocDeaf: false,
     hang: undefined,
+    ready: true,
+    connectedPeers: 10,
+    statusFailure: undefined,
   };
   readonly requests: string[] = [];
   socWrites = 0;
@@ -232,6 +239,30 @@ export class FakeBeeNode {
         return send(500, { message: 'internal error' });
       }
       return send(201, { reference: address });
+    }
+
+    if (request.method === 'GET' && (url.pathname === '/readiness' || url.pathname === '/topology')) {
+      if (this.faults.statusFailure) {
+        return send(this.faults.statusFailure, { message: 'unavailable' });
+      }
+      if (url.pathname === '/readiness') {
+        return send(this.faults.ready ? 200 : 400, {
+          apiVersion: '7.3.0',
+          version: '2.8.2',
+          status: this.faults.ready ? 'ready' : 'notReady',
+        });
+      }
+      return send(200, {
+        baseAddr: '0'.repeat(64),
+        population: this.faults.connectedPeers * 4,
+        connected: this.faults.connectedPeers,
+        timestamp: new Date().toISOString(),
+        nnLowWatermark: 3,
+        depth: 8,
+        reachability: 'Public',
+        networkAvailability: 'Available',
+        bins: {},
+      });
     }
 
     if (request.method === 'POST' && url.pathname === '/bytes') {

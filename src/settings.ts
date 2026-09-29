@@ -71,6 +71,8 @@ const environmentShape = z.object({
   SHUTDOWN_DEADLINE_MS: milliseconds(20 * SECOND),
   LOCK_REFRESH_MS: milliseconds(5 * SECOND),
   LOCK_STALE_MS: milliseconds(MINUTE),
+  MIN_CONNECTED_PEERS: z.coerce.number().int().min(0).default(8),
+  CROSS_CHECK_TIMEOUT_MS: milliseconds(10 * SECOND),
   CHECKPOINT_DIR: z.string().min(1).default('./checkpoints'),
   HEALTH_PORT: z.coerce.number().int().min(0).max(65_535).default(3000),
 });
@@ -116,6 +118,8 @@ export type Settings = {
   shutdownDeadlineMs: number;
   lockRefreshMs: number;
   lockStaleMs: number;
+  minConnectedPeers: number;
+  crossCheckTimeoutMs: number;
   checkpointDir: string;
   healthPort: number;
 };
@@ -165,6 +169,8 @@ export function parseSettings(environment: Record<string, string | undefined>): 
     shutdownDeadlineMs: env.SHUTDOWN_DEADLINE_MS,
     lockRefreshMs: env.LOCK_REFRESH_MS,
     lockStaleMs: env.LOCK_STALE_MS,
+    minConnectedPeers: env.MIN_CONNECTED_PEERS,
+    crossCheckTimeoutMs: env.CROSS_CHECK_TIMEOUT_MS,
     checkpointDir: env.CHECKPOINT_DIR,
     healthPort: env.HEALTH_PORT,
   };

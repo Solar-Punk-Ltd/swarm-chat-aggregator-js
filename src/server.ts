@@ -58,6 +58,7 @@ export class AggregatorServer {
   private readonly checkpoints: CheckpointStore;
   private readonly lock: FolderLock;
   private readonly writeBee: Bee;
+  private readonly listenBee: Bee;
   private readonly historyStore: HistoryStore;
   private readonly listener: GsocListener;
   private readonly intake: Intake;
@@ -78,6 +79,7 @@ export class AggregatorServer {
       (reason) => this.fail(`lost the checkpoint lock: ${reason}`),
     );
     this.writeBee = new Bee(settings.writeBeeUrl);
+    this.listenBee = new Bee(settings.listenBeeUrl);
     this.historyStore = new BeeHistoryStore(this.writeBee, settings.writeStamp, settings.requestTimeoutMs);
     this.intake = new Intake(
       settings.allowedChats,
@@ -88,7 +90,7 @@ export class AggregatorServer {
       this.logger,
     );
     this.listener = new GsocListener(
-      new Bee(settings.listenBeeUrl),
+      this.listenBee,
       new Bee(settings.heartbeatBeeUrl),
       settings.heartbeatStamp,
       settings.gsocKey,
@@ -231,7 +233,20 @@ export class AggregatorServer {
       },
       this.stats,
       this.logger,
-      findHeadWithoutCheckpoint,
+      (feed) =>
+        findHeadWithoutCheckpoint(feed, {
+          writer: this.writeBee,
+          minConnectedPeers: settings.minConnectedPeers,
+          requestTimeoutMs: settings.requestTimeoutMs,
+          secondFeed: new BeeChatFeed(
+            this.listenBee,
+            topic,
+            settings.feedKey,
+            settings.writeStamp,
+            settings.readRecheckMs,
+            settings.crossCheckTimeoutMs,
+          ),
+        }),
     );
     this.chats.set(topic, chat);
     chat.start();
