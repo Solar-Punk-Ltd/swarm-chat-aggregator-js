@@ -15,7 +15,7 @@ export type SlotWrite = { kind: 'written' } | { kind: 'failed'; error: string };
 
 /** The feed of one chat under the server's feed key, read and written one explicit slot at a time. */
 export interface ChatFeed {
-  /** Reads a slot. A slot is empty only when two reads, `recheckMs` apart, both answer 404. */
+  /** Reads a slot. A slot is empty only when two reads, `recheckMs` apart, both answer as absent. */
   readSlot(index: number): Promise<SlotRead>;
   /** Bee's head lookup. Bee answers 404 for a failed lookup as well as for no update, so `none` proves nothing. */
   lookupHead(): Promise<HeadLookup>;
@@ -35,13 +35,19 @@ export function describeError(error: unknown): string {
 }
 
 /**
- * What a failed slot read says about the slot, the one place that reads Bee's answers. A 404 is a candidate
- * for empty, which `readSlot` confirms with a second read. Every other transport failure is a BeeResponseError
- * and says nothing about the slot. Anything else was thrown checking the chunk that came back, so the slot holds
- * something that is not an update of this feed.
+ * Bee answers a read of a chunk it could not find with 404 on some versions and 500 ("no peer found") on others,
+ * as bee-js's own isRetrievable accepts, so both are a candidate for empty.
+ */
+const ABSENT_STATUSES = new Set([404, 500]);
+
+/**
+ * What a failed slot read says about the slot, the one place that reads Bee's answers. An absent status is a
+ * candidate for empty, which `readSlot` confirms with a second read. Every other transport failure, a timeout, a
+ * refused connection or a gateway error, is a BeeResponseError that says nothing about the slot. Anything else was
+ * thrown checking the chunk that came back, so the slot holds something that is not an update of this feed.
  */
 export function slotReadFromError(error: unknown): SlotRead {
-  if (isNotFound(error)) {
+  if (error instanceof BeeResponseError && error.status !== undefined && ABSENT_STATUSES.has(error.status)) {
     return { kind: 'empty' };
   }
   return error instanceof BeeResponseError

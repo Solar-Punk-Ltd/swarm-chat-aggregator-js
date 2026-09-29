@@ -59,9 +59,11 @@ export class FakeSwarm {
 }
 
 type Faults = {
+  /** What a read of a chunk nobody stored answers. Bee 2.6 answered 500 on /chunks for a slot never written. */
+  absentStatus: number;
   /** The head lookup answers this status instead of looking, or stays behind the head by `staleBy` slots. */
   feedLookup: { status?: number; staleBy?: number };
-  /** The next N reads of a chunk answer 404 although it is stored, by address, or for any address under `*`. */
+  /** The next N reads of a chunk answer as absent although it is stored, by address, or for any address under `*`. */
   chunkMisses: Map<string, number>;
   readFailures: number;
   writeFailures: number;
@@ -79,6 +81,7 @@ type Faults = {
 /** One fake Bee node over real HTTP and a real websocket, backed by a FakeSwarm. */
 export class FakeBeeNode {
   readonly faults: Faults = {
+    absentStatus: Number(process.env.FAKE_ABSENT_STATUS ?? 404),
     feedLookup: {},
     chunkMisses: new Map(),
     readFailures: 0,
@@ -177,14 +180,15 @@ export class FakeBeeNode {
     if (request.method === 'GET' && (match = /^\/chunks\/([0-9a-f]{64})$/.exec(url.pathname))) {
       if (this.faults.readFailures > 0) {
         this.faults.readFailures -= 1;
-        return send(500, { message: 'internal error' });
+        return send(503, { message: 'service unavailable' });
       }
       const address = match[1];
+      const absent = () => send(this.faults.absentStatus, { message: 'not found' });
       if (this.takeMiss(address)) {
-        return send(404, { message: 'not found' });
+        return absent();
       }
       const chunk = this.swarm.chunks.get(address);
-      return chunk ? send(200, chunk) : send(404, { message: 'not found' });
+      return chunk ? send(200, chunk) : absent();
     }
 
     if (request.method === 'GET' && (match = /^\/feeds\/([0-9a-f]{40})\/([0-9a-f]{64})$/.exec(url.pathname))) {
