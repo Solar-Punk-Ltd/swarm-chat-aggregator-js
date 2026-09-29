@@ -15,7 +15,7 @@ import {
 } from '@solarpunkltd/swarm-chat-js/message';
 
 import type { HistoryLimits, UploadedHistoryFile } from '../../src/history.js';
-import { consoleLogger, silentLogger } from '../../src/libs/logger.js';
+import { type Logger, consoleLogger } from '../../src/libs/logger.js';
 import { AggregatorServer } from '../../src/server.js';
 import { type Environment, type Settings, parseSettings } from '../../src/settings.js';
 import { FakeBeeNode, FakeSwarm } from './fakeBee.js';
@@ -49,6 +49,8 @@ export class Rig {
   readonly stamp = randomBytes(32).toString('hex');
   readonly servers: AggregatorServer[] = [];
   fatal: string[] = [];
+  /** Every line the servers logged, as text. */
+  readonly logs: string[] = [];
 
   private constructor(
     readonly swarm: FakeSwarm,
@@ -111,12 +113,22 @@ export class Rig {
 
   server(overrides: Partial<Environment> = {}, historyLimits?: HistoryLimits): AggregatorServer {
     const server = new AggregatorServer(this.settings(overrides), {
-      logger: process.env.TEST_LOG ? consoleLogger : silentLogger,
+      logger: process.env.TEST_LOG ? consoleLogger : this.recordingLogger(),
       onFatal: (reason) => this.fatal.push(reason),
       historyLimits,
     });
     this.servers.push(server);
     return server;
+  }
+
+  private recordingLogger(): Logger {
+    const record =
+      (level: string) =>
+      (...args: unknown[]) =>
+        this.logs.push(
+          `${level} ${args.map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' ')}`,
+        );
+    return { info: record('info'), warn: record('warn'), error: record('error'), debug: record('debug') };
   }
 
   /** Starts a server and waits until its subscription reaches the listening node, as a send before that is lost. */

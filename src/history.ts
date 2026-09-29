@@ -93,6 +93,11 @@ export class HistoryBook {
     return this.current.rows;
   }
 
+  /** The rows after `toSeq`, across files not yet saved in their final form. */
+  rowsAfter(toSeq: number): HistoryRow[] {
+    return [...this.closed, this.current].flatMap((file) => file.rows.filter((row) => row.seq > toSeq));
+  }
+
   get isSaving(): boolean {
     return this.saving !== undefined;
   }
