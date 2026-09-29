@@ -133,6 +133,7 @@ async function spike(beeVersion) {
       log(`--- last log lines of ${role}\n${cluster.containerLogs(role)}`);
     return false;
   } finally {
+    log(`diagnostics saved in ${await cluster.saveDiagnostics(`spike-${beeVersion}`)}`);
     cluster.stop();
   }
 }

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { closeSync, openSync, readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 
 export class DockerError extends Error {
@@ -22,6 +22,16 @@ export function docker(args, { allowFailure = false, input } = {}) {
   if (result.error) throw result.error;
   if (result.status !== 0 && !allowFailure) throw new DockerError(args, result);
   return { status: result.status, stdout: result.stdout.trim(), stderr: result.stderr.trim() };
+}
+
+/** Writes a container's whole log to a file, both streams in the order the container wrote them. */
+export function saveContainerLog(name, file) {
+  const fd = openSync(file, 'w');
+  try {
+    spawnSync('docker', ['logs', '--timestamps', name], { stdio: ['ignore', fd, fd] });
+  } finally {
+    closeSync(fd);
+  }
 }
 
 const CONTAINER_ID_IN_MOUNTINFO = /\/containers\/([0-9a-f]{64})\//;

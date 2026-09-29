@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { createWriteStream, mkdtempSync, readFileSync } from 'node:fs';
+import { copyFileSync, createWriteStream, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -106,6 +106,14 @@ export class ServerProcess {
       await this.exited;
     }
     this.log(`server stopped by ${signal}`);
+  }
+
+  saveLog(file) {
+    try {
+      copyFileSync(this.logFile, file);
+    } catch (error) {
+      this.log(`the server log could not be saved: ${error.message}`);
+    }
   }
 
   logTail(lines = 60) {
