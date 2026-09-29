@@ -126,6 +126,7 @@ its name. A `.env` file in the working directory is read when it is there.
 | `HEARTBEAT_STALE_MS`     | `180000`        | how long without a frame or a heartbeat before health answers 503, over the interval                                   |
 | `READ_RECHECK_MS`        | `3000`          | the gap between the two reads that confirm an empty slot                                                               |
 | `REQUEST_TIMEOUT_MS`     | `30000`         | the longest any one Bee request may take                                                                               |
+| `HISTORY_TIMEOUT_MS`     | `180000`        | the longest a history file's upload or download may take, a whole file with its parity rather than one chunk           |
 | `RESUME_RETRY_MS`        | `30000`         | how long a chat whose head is unknown waits before trying again                                                        |
 | `PUBLISH_ATTEMPTS`       | `6`             | attempts per history save, and feed-write attempts before a stalled slot turns health red                              |
 | `RETRY_BASE_MS`          | `1000`          | the first retry delay, doubling up to 30 seconds                                                                       |

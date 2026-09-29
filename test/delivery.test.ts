@@ -102,6 +102,14 @@ describe('retries', () => {
 });
 
 describe('history', () => {
+  test('a history upload slower than a single request is given its own timeout', async () => {
+    const server = await rig.startServer({ REQUEST_TIMEOUT_MS: '200', HISTORY_TIMEOUT_MS: '3000' });
+    rig.writer.faults.dataUploadDelayMs = 500;
+    await rig.send(message({ text: 'saved slowly' }));
+    await waitFor(() => server.healthReport().chats[0]?.history?.toSeq === 0, 5000, 'the slow save');
+    expect(rig.history(server.healthReport().chats[0]?.history?.ref ?? '').messages).toHaveLength(1);
+  });
+
   test('a burst of messages costs at most two saves', async () => {
     const server = await rig.startServer();
     rig.writer.faults.dataUploadDelayMs = 400;
