@@ -226,6 +226,25 @@ describe('write-ahead checkpoint', () => {
     expect(rig.entry(1)?.msg.text).toBe('next');
   });
 
+  test('a history file gone from Swarm does not wedge the chat: a fresh file links back to it', async () => {
+    await publish(2);
+    const lost = [...rig.swarm.data.keys()];
+    for (const ref of lost) {
+      rig.swarm.data.delete(ref);
+    }
+    const server = await rig.startServer();
+    await rig.send(message({ text: 'after the loss' }));
+    await waitFor(() => rig.entry(2) !== undefined, 5000, 'slot 2');
+    await waitFor(() => server.healthReport().chats[0]?.history?.toSeq === 2, 5000, 'the fresh file saved');
+    const report = server.healthReport();
+    expect(report.chats[0]?.historyLost?.toSeq).toBe(1);
+    expect(rig.logs.some((line) => line.startsWith('error') && line.includes('history file'))).toBe(true);
+    const fresh = rig.history(report.chats[0]?.history?.ref ?? '');
+    expect(fresh).toMatchObject({ fromSeq: 2, toSeq: 2 });
+    expect(fresh.prev?.toSeq).toBe(1);
+    expect(lost).toContain(fresh.prev?.ref);
+  });
+
   test('a history save that finishes after the stop does not write the checkpoint', async () => {
     const server = await rig.startServer({ SHUTDOWN_DEADLINE_MS: '100' });
     rig.writer.faults.dataUploadDelayMs = 600;

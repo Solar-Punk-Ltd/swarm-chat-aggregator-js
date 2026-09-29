@@ -10,7 +10,7 @@ import {
 import { type Checkpoint, CheckpointDamagedError, type CheckpointStore } from './checkpoint.js';
 import { encodeFeedEntry, makeFeedEntry, rowOf } from './feed/entry.js';
 import type { ChatFeed, SlotRead } from './feed/slots.js';
-import type { HistoryBook, HistoryStore } from './history.js';
+import type { HistoryBook, HistoryStart, HistoryStore } from './history.js';
 import type { Logger } from './libs/logger.js';
 import { DropReason, type Stats } from './stats.js';
 import { retryDelayMs } from './utils/backoff.js';
@@ -51,6 +51,8 @@ export type ChatHealth = {
   startedWithoutCheckpoint: boolean;
   historySaving: boolean;
   lastHistoryError: string | null;
+  /** A history file that could not be downloaded at resume, which the current file links back to. */
+  historyLost: HistoryLink | null;
   historyTrail: number;
   history: HistoryLink | null;
 };
@@ -86,6 +88,8 @@ export class ChatPublisher {
   private lastPublishAt: number | null = null;
   private lastActivityAt = Date.now();
   private startedWithoutCheckpoint = false;
+  private historyDownloadFailures = 0;
+  private historyLost: HistoryLink | null = null;
   private lastError: string | null = null;
   private failing = false;
   private accepting = true;
@@ -221,6 +225,7 @@ export class ChatPublisher {
       startedWithoutCheckpoint: this.startedWithoutCheckpoint,
       historySaving: this.history.isSaving,
       lastHistoryError: this.history.lastSaveError,
+      historyLost: this.historyLost,
       historyTrail: this.history.trail,
       history: this.history.newestLink,
     };
@@ -327,9 +332,7 @@ export class ChatPublisher {
       pending = { index: checkpoint.pending.index, bytes, row: rowOf(entry.value), persisted: true };
     }
 
-    const link = checkpoint.history;
-    const saved = link ? { link, file: await this.downloadHistory(link) } : null;
-    this.history.restore(saved, checkpoint.rows);
+    this.history.restore(await this.historyStart(checkpoint.history), checkpoint.rows);
     this.enterReady(checkpoint.index + 1, pending);
     if (checkpoint.rows.length > 0) {
       void this.history.requestSave();
@@ -359,13 +362,13 @@ export class ChatPublisher {
     }
 
     const link = entries.get(head)?.history ?? null;
-    const saved = link && link.toSeq <= head ? { link, file: await this.downloadHistory(link) } : null;
+    const start = await this.historyStart(link && link.toSeq <= head ? link : null);
     const later: HistoryRow[] = [];
-    for (let seq = (saved?.link.toSeq ?? -1) + 1; seq <= head; seq++) {
+    for (let seq = (start.kind === 'none' ? -1 : start.link.toSeq) + 1; seq <= head; seq++) {
       const entry = entries.get(seq) ?? (await this.readEntry(seq, 'a slot the history has not caught up with'));
       later.push(rowOf(entry));
     }
-    this.history.restore(saved, later);
+    this.history.restore(start, later);
     this.enterReady(head + 1, undefined);
     await this.writeCheckpoint();
     if (later.length > 0) {
@@ -412,19 +415,36 @@ export class ChatPublisher {
     return entry.value;
   }
 
-  private async downloadHistory(link: HistoryLink): Promise<HistoryFile> {
+  /**
+   * The file the chat's history continues from. A download that fails is retried with the resume, and after
+   * PUBLISH_ATTEMPTS failures in a row the file is taken as lost, so an expired file never wedges the chat.
+   */
+  private async historyStart(link: HistoryLink | null): Promise<HistoryStart> {
+    if (!link) {
+      return { kind: 'none' };
+    }
     let file: HistoryFile;
     try {
       file = await this.historyStore.download(link, this.topic);
     } catch (error) {
-      throw new ResumeError(`history file ${link.ref}: ${errorText(error)}`, { cause: error });
+      this.historyDownloadFailures += 1;
+      if (this.historyDownloadFailures < this.timings.publishAttempts) {
+        throw new ResumeError(`history file ${link.ref}: ${errorText(error)}`, { cause: error });
+      }
+      this.historyLost = link;
+      this.logger.error(
+        `[chat ${this.topic}] history file ${link.ref} could not be downloaded after ${this.historyDownloadFailures} attempts, so a fresh file starts after seq ${link.toSeq} and links back to it`,
+        errorText(error),
+      );
+      return { kind: 'lost', link };
     }
+    this.historyDownloadFailures = 0;
     if (file.skipped > 0) {
       this.logger.warn(
         `[chat ${this.topic}] history file ${link.ref} had ${file.skipped} rows that failed their check`,
       );
     }
-    return file;
+    return { kind: 'saved', link, file };
   }
 
   /** Makes the next message the pending entry and records it before any write, retrying the record until it holds. */
