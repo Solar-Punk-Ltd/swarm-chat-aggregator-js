@@ -60,8 +60,11 @@ over its life, about 20 MB at 300 messages and about 200 MB at 1,000, before red
   `/health` names the stuck slot, how long it has been stuck and how many attempts it took.
 - **A chat without a checkpoint** asks Bee's head lookup and walks forward from there. A 404 from the lookup is
   not taken as a new chat on its own, because Bee answers 404 for a failed lookup too. A chat is new only when
-  the lookup answered 404 and slot 0 reads as absent twice, a few seconds apart. Any other outcome leaves the
-  chat unpublished and retried later.
+  the lookup answered 404, slot 0 reads as absent twice a few seconds apart, the writing node answers ready with
+  at least `MIN_CONNECTED_PEERS` connected peers, and the listening node cannot find slot 0 either. A node that
+  cannot reach its peers reads every chunk as absent, which is why the absent answer needs that proof. Any other
+  outcome leaves the chat unpublished and retried later, and a chat that does start this way says so in its log
+  and on `/health`.
 - **A slot is absent** only when two reads, `READ_RECHECK_MS` apart, both answer 404 or 500, since Bee answers a
   chunk it could not find either way depending on its version. Timeouts and gateway errors are failed reads,
   retried and never taken as absent.
@@ -101,36 +104,38 @@ letters.
 Environment variables, read once at start. A missing or malformed one stops the server with exit code 2 and
 its name. A `.env` file in the working directory is read when it is there.
 
-| Variable                | Default         | Meaning                                                                                   |
-| :---------------------- | :-------------- | :---------------------------------------------------------------------------------------- |
-| `LISTEN_BEE_URL`        | required        | the Bee node the server subscribes on, in the inbox address's neighbourhood               |
-| `WRITE_BEE_URL`         | required        | the Bee node that uploads feed entries and history files                                  |
-| `HEARTBEAT_BEE_URL`     | required        | a different Bee node that heartbeats are sent through, the one browsers send through      |
-| `WRITE_STAMP`           | required        | the postage batch id of the writing node, 64 hex characters                               |
-| `HEARTBEAT_STAMP`       | required        | a batch id the heartbeat node accepts                                                     |
-| `FEED_KEY`              | required        | the private key the chat feeds are written under, 64 hex characters                       |
-| `GSOC_KEY`              | required        | the inbox's private key, public by design since every browser signs with it               |
-| `GSOC_IDENTIFIER`       | required        | the inbox's identifier string                                                             |
-| `CHAT_TOPICS`           | one of the two  | the allowed chats, a comma-separated list of topics                                       |
-| `CHAT_TOPIC_PATTERN`    | one of the two  | the allowed chats, a regular expression matched against the whole topic                   |
-| `MAX_ACTIVE_CHATS`      | `50`            | how many chats the server publishes at once                                               |
-| `RATE_WINDOW_MS`        | `60000`         | the window the two rates count in                                                         |
-| `RATE_PER_CHAT`         | `600`           | messages per window in one chat                                                           |
-| `RATE_PER_SENDER`       | `30`            | messages per window from one sender in one chat                                           |
-| `QUEUE_LIMIT`           | `500`           | messages waiting per chat, past which more are dropped                                    |
-| `RESUBSCRIBE_IDLE_MS`   | `180000`        | the silence after which the server resubscribes                                           |
-| `HEARTBEAT_INTERVAL_MS` | `60000`         | how often a heartbeat is sent                                                             |
-| `HEARTBEAT_STALE_MS`    | `180000`        | how long without a frame or a heartbeat before health answers 503, over the interval      |
-| `READ_RECHECK_MS`       | `3000`          | the gap between the two reads that confirm an empty slot                                  |
-| `REQUEST_TIMEOUT_MS`    | `30000`         | the longest any one Bee request may take                                                  |
-| `RESUME_RETRY_MS`       | `30000`         | how long a chat whose head is unknown waits before trying again                           |
-| `PUBLISH_ATTEMPTS`      | `6`             | attempts per history save, and feed-write attempts before a stalled slot turns health red |
-| `RETRY_BASE_MS`         | `1000`          | the first retry delay, doubling up to 30 seconds                                          |
-| `SHUTDOWN_DEADLINE_MS`  | `20000`         | how long a shutdown may spend publishing what is queued                                   |
-| `LOCK_REFRESH_MS`       | `5000`          | how often the lock holder refreshes the lock                                              |
-| `LOCK_STALE_MS`         | `60000`         | how old a lock must be before a new start takes it over, over twice the refresh           |
-| `CHECKPOINT_DIR`        | `./checkpoints` | where the checkpoints and the lock live, a volume in a container                          |
-| `HEALTH_PORT`           | `3000`          | the port of `GET /health`                                                                 |
+| Variable                 | Default         | Meaning                                                                                                                |
+| :----------------------- | :-------------- | :--------------------------------------------------------------------------------------------------------------------- |
+| `LISTEN_BEE_URL`         | required        | the Bee node the server subscribes on, in the inbox address's neighbourhood                                            |
+| `WRITE_BEE_URL`          | required        | the Bee node that uploads feed entries and history files                                                               |
+| `HEARTBEAT_BEE_URL`      | required        | a different Bee node that heartbeats are sent through, the one browsers send through                                   |
+| `WRITE_STAMP`            | required        | the postage batch id of the writing node, 64 hex characters                                                            |
+| `HEARTBEAT_STAMP`        | required        | a batch id the heartbeat node accepts                                                                                  |
+| `FEED_KEY`               | required        | the private key the chat feeds are written under, 64 hex characters                                                    |
+| `GSOC_KEY`               | required        | the inbox's private key, public by design since every browser signs with it                                            |
+| `GSOC_IDENTIFIER`        | required        | the inbox's identifier string                                                                                          |
+| `CHAT_TOPICS`            | one of the two  | the allowed chats, a comma-separated list of topics                                                                    |
+| `CHAT_TOPIC_PATTERN`     | one of the two  | the allowed chats, a regular expression matched against the whole topic                                                |
+| `MAX_ACTIVE_CHATS`       | `50`            | how many chats the server publishes at once                                                                            |
+| `RATE_WINDOW_MS`         | `60000`         | the window the two rates count in                                                                                      |
+| `RATE_PER_CHAT`          | `600`           | messages per window in one chat                                                                                        |
+| `RATE_PER_SENDER`        | `30`            | messages per window from one sender in one chat                                                                        |
+| `QUEUE_LIMIT`            | `500`           | messages waiting per chat, past which more are dropped                                                                 |
+| `RESUBSCRIBE_IDLE_MS`    | `180000`        | the silence after which the server resubscribes                                                                        |
+| `HEARTBEAT_INTERVAL_MS`  | `60000`         | how often a heartbeat is sent                                                                                          |
+| `HEARTBEAT_STALE_MS`     | `180000`        | how long without a frame or a heartbeat before health answers 503, over the interval                                   |
+| `READ_RECHECK_MS`        | `3000`          | the gap between the two reads that confirm an empty slot                                                               |
+| `REQUEST_TIMEOUT_MS`     | `30000`         | the longest any one Bee request may take                                                                               |
+| `RESUME_RETRY_MS`        | `30000`         | how long a chat whose head is unknown waits before trying again                                                        |
+| `PUBLISH_ATTEMPTS`       | `6`             | attempts per history save, and feed-write attempts before a stalled slot turns health red                              |
+| `RETRY_BASE_MS`          | `1000`          | the first retry delay, doubling up to 30 seconds                                                                       |
+| `SHUTDOWN_DEADLINE_MS`   | `20000`         | how long a shutdown may spend publishing what is queued                                                                |
+| `LOCK_REFRESH_MS`        | `5000`          | how often the lock holder refreshes the lock                                                                           |
+| `LOCK_STALE_MS`          | `60000`         | how old a lock must be before a new start takes it over, over twice the refresh                                        |
+| `MIN_CONNECTED_PEERS`    | `8`             | connected peers the writing node needs before a chat with no checkpoint starts at slot 0, 1 on a two-node test cluster |
+| `CROSS_CHECK_TIMEOUT_MS` | `10000`         | the timeout of the second node's read of slot 0 for a chat with no checkpoint                                          |
+| `CHECKPOINT_DIR`         | `./checkpoints` | where the checkpoints and the lock live, a volume in a container                                                       |
+| `HEALTH_PORT`            | `3000`          | the port of `GET /health`                                                                                              |
 
 Seven settings replace variables of the 6.x server, which are no longer read:
 

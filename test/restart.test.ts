@@ -131,6 +131,56 @@ describe('restart', () => {
   });
 });
 
+describe('a chat without a checkpoint', () => {
+  test('does not start while the writing node has fewer peers than the floor, and starts once it has them', async () => {
+    rig.writer.faults.connectedPeers = 2;
+    const server = await publishOne();
+    await waitFor(() => server.healthReport().chats[0]?.lastError?.includes('peers') ?? false, 5000, 'the refusal');
+    expect(server.healthReport().chats[0]?.state).toBe('resuming');
+    expect(rig.writer.socWrites).toBe(0);
+
+    rig.writer.faults.connectedPeers = 3;
+    await waitFor(() => rig.entry(0) !== undefined, 5000, 'slot 0');
+    expect(server.healthReport().chats[0]?.startedWithoutCheckpoint).toBe(true);
+    expect(rig.logs.some((line) => line.startsWith('warn') && line.includes('without a checkpoint'))).toBe(true);
+  });
+
+  test('does not start while the writing node is not ready or cannot say', async () => {
+    rig.writer.faults.ready = false;
+    const server = await publishOne();
+    await waitFor(() => server.healthReport().chats[0]?.lastError?.includes('ready') ?? false, 5000, 'not ready');
+    rig.writer.faults.ready = true;
+    rig.writer.faults.statusFailure = 500;
+    await waitFor(() => server.healthReport().chats[0]?.lastError?.includes('/readiness') ?? false, 5000, 'failed');
+    expect(rig.writer.socWrites).toBe(0);
+    rig.writer.faults.statusFailure = undefined;
+    await waitFor(() => rig.entry(0) !== undefined, 5000, 'slot 0');
+  });
+
+  test('a second node that finds slot 0 wins over the writing node that missed it', async () => {
+    await publish(1);
+    await rm(join(rig.checkpointDir, `${Topic.fromString(CHAT).toHex()}.json`));
+    rig.writer.faults.feedLookup = { status: 404 };
+    rig.writer.faults.chunkMisses.set('*', 2);
+    await publishOne();
+    await waitFor(() => rig.entry(1) !== undefined, 5000, 'slot 1');
+    expect(rig.entry(0)?.msg.text).toBe('message 0');
+    expect(rig.entry(1)?.msg.text).toBe('after restart');
+  });
+
+  test('a second node that cannot answer in time is a failed control, never an empty slot', async () => {
+    rig.writer.faults.feedLookup = { status: 404 };
+    rig.listener.faults.hang = /^\/chunks\//;
+    const server = await publishOne();
+    await waitFor(() => server.healthReport().chats[0]?.lastError?.includes('second node') ?? false, 5000, 'control');
+    expect(server.healthReport().chats[0]?.state).toBe('resuming');
+    expect(rig.writer.socWrites).toBe(0);
+
+    rig.listener.faults.hang = undefined;
+    await waitFor(() => rig.entry(0) !== undefined, 5000, 'slot 0 once the second node answers');
+  });
+});
+
 describe('write-ahead checkpoint', () => {
   test('resuming from a checkpoint reads no slot beyond the check before the next write', async () => {
     await publish(3);
