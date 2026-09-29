@@ -3,13 +3,13 @@ import {
   BeeError,
   Bytes,
   FeedIndex,
-  GsocSubscription,
+  type GsocSubscription,
   Identifier,
   PrivateKey,
   RedundancyLevel,
   Topic,
 } from '@ethersphere/bee-js';
-import { MessageData, MessageStateRef, StatefulMessage } from '@solarpunkltd/swarm-chat-js';
+import type { MessageData, MessageStateRef, StatefulMessage } from '@solarpunkltd/swarm-chat-js';
 import PQueue from 'p-queue';
 
 import { reconnectDelayMs } from '../utils/backoff.js';
@@ -70,7 +70,8 @@ export class SwarmAggregator {
     const subscription = this.gsocBee.messaging.gsocSubscribe(key.publicKey().address(), identifier, {
       onMessage: (message: Bytes) => {
         this.gsocReconnectAttempt = 0;
-        this.gsocQueue.add(() => this.handleGsocMessage(message));
+        // Errors surface through the process's unhandledRejection handler, as they did before.
+        void this.gsocQueue.add(() => this.handleGsocMessage(message));
       },
       onError: (error: BeeError) => this.logger.error('[GSOC] Subscription error:', error.message),
       // Bee drops the socket whenever the gateway in front of it restarts, and a dropped socket is
