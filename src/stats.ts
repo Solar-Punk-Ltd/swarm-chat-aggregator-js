@@ -12,7 +12,6 @@ export const DropReason = {
   RateSender: 'rate-sender',
   QueueFull: 'queue-full',
   ChatBlocked: 'chat-blocked',
-  DeadLetter: 'dead-letter',
   Shutdown: 'shutdown',
   HeartbeatUnknown: 'heartbeat-unknown',
   HeartbeatRepeat: 'heartbeat-repeat',

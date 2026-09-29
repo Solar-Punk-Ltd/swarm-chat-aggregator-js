@@ -37,7 +37,6 @@ describe('retries', () => {
     expect(report.chats[0]?.stall).toMatchObject({ slot: 0 });
     expect(report.chats[0]?.stall?.stuckSeconds).toBeGreaterThanOrEqual(0);
     expect(report.chats[0]?.queued).toBe(1);
-    expect(server.stats.dropped.get('dead-letter')).toBeUndefined();
 
     rig.writer.faults.writeFailures = 0;
     await waitFor(() => server.stats.published === 2, 10_000, 'both published once Bee accepts writes');
