@@ -77,6 +77,15 @@ function beeEnv(options) {
   ]);
 }
 
+/** Thrown by a probe when what it waits for can no longer happen, such as a container that exited. */
+export class WaitAbandoned extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'WaitAbandoned';
+  }
+}
+
+/** Polls `probe` until it returns something truthy. An ordinary error is retried, a WaitAbandoned ends the wait. */
 export async function waitFor(what, probe, { timeoutMs, intervalMs = 2000 }) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
@@ -85,6 +94,7 @@ export async function waitFor(what, probe, { timeoutMs, intervalMs = 2000 }) {
       const value = await probe();
       if (value) return value;
     } catch (error) {
+      if (error instanceof WaitAbandoned) throw error;
       lastError = error;
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
@@ -287,7 +297,9 @@ export class Cluster {
     await waitFor(
       `${role} to become ready`,
       async () => {
-        if (!alive()) throw new Error(`${role} container stopped`);
+        if (!alive()) {
+          throw new WaitAbandoned(`${role} container exited. Its last log lines:\n${this.containerLogs(role)}`);
+        }
         const response = await fetch(`${this.url(role)}/readiness`, { signal: AbortSignal.timeout(5000) });
         return response.ok;
       },
