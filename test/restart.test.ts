@@ -84,7 +84,7 @@ describe('restart', () => {
     expect(rig.writer.socWrites).toBe(0);
   });
 
-  test('starts a chat at slot 0 only when the lookup and two reads of slot 0 all answer 404', async () => {
+  test('starts a chat at slot 0 only when the lookup answers 404 and two reads of slot 0 answer as absent', async () => {
     rig.writer.faults.feedLookup = { status: 404 };
     await publishOne();
     await waitFor(() => rig.entry(0) !== undefined, 5000, 'slot 0');
@@ -109,7 +109,7 @@ describe('restart', () => {
     expect(rig.entry(2)?.msg.text).toBe('after restart');
   });
 
-  test('a slot read that fails with 500 is retried and never taken as the head', async () => {
+  test('a slot read that fails with a gateway error is retried and never taken as the head', async () => {
     await publish(2);
     rig.writer.faults.readFailures = 2;
     await publishOne();
