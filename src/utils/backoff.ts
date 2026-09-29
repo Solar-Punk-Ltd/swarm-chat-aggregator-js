@@ -14,3 +14,10 @@ export function reconnectDelayMs(
   const safeAttempt = Number.isFinite(attempt) && attempt > 0 ? Math.floor(attempt) : 0;
   return Math.min(maxMs, baseMs * 2 ** safeAttempt);
 }
+
+export const RETRY_MAX_MS = 30_000;
+
+/** Delay before retry number `attempt + 1` of an upload, doubling from `baseMs` up to half a minute. */
+export function retryDelayMs(attempt: number, baseMs: number): number {
+  return reconnectDelayMs(attempt, baseMs, RETRY_MAX_MS);
+}
