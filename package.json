@@ -31,7 +31,8 @@
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "mine": "node dist/mine.js"
   },
   "dependencies": {
     "@ethersphere/bee-js": "13.1.0",
