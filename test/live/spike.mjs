@@ -59,6 +59,34 @@ async function control(beeVersion, label, write) {
   observations.push(`Bee ${beeVersion} control, ${label}: ${answer}`);
 }
 
+/** Status fields that decide whether a node can push, as the node itself and its peers report them. */
+const STATUS_FIELDS = ['beeMode', 'isWarmingUp', 'isReachable', 'connectedPeers', 'storageRadius', 'committedDepth'];
+
+/**
+ * What each node says about itself and about its peers, recorded before the send. /status/peers asks every connected
+ * peer for its status the way Bee's salud does, and salud publishing a network radius is what a push waits on.
+ */
+async function recordNodeViews(cluster, beeVersion) {
+  const pick = (status) => Object.fromEntries(STATUS_FIELDS.map((field) => [field, status?.[field]]));
+  for (const role of ['queen', 'worker']) {
+    for (const [label, read] of [
+      ['/status', async () => pick(await httpJson(`${cluster.url(role)}/status`))],
+      [
+        '/status/peers',
+        async () =>
+          ((await httpJson(`${cluster.url(role)}/status/peers`)).snapshots ?? []).map((peer) => ({
+            overlay: peer.overlay?.slice(0, 8),
+            requestFailed: peer.requestFailed ?? false,
+            ...pick(peer),
+          })),
+      ],
+    ]) {
+      const answer = await answerOf(async () => ({ status: 'answered', text: JSON.stringify(await read()) }));
+      observations.push(`Bee ${beeVersion} ${role} ${label} before the send: ${answer}`);
+    }
+  }
+}
+
 /**
  * Two writes before the GSOC send, to tell a push that never leaves the worker apart from something in SOC or GSOC: a
  * direct POST /bytes through the worker, which needs a push and no SOC, and a /soc write on the queen with the queen's
@@ -95,6 +123,7 @@ async function gsocRoundTrip(cluster, beeVersion, batchId, queenStamp) {
   const { overlay } = await httpJson(`${cluster.url('queen')}/addresses`);
   const identifier = Identifier.fromString(`bed-spike-${cluster.runId}`);
   const key = await timed('mine the GSOC key', () => listener.messaging.gsocMine(overlay, identifier));
+  await recordNodeViews(cluster, beeVersion);
   await runControls(cluster, beeVersion, batchId, queenStamp, key);
 
   const { received, cancel } = receiveOne(listener, key.publicKey().address(), identifier);
