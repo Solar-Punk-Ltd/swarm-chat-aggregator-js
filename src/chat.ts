@@ -1,17 +1,16 @@
 import type { CheckpointStore } from './checkpoint.js';
+import { encodeFeedEntry, makeFeedEntry, rowOf } from './feed/entry.js';
+import type { ChatFeed, SlotRead } from './feed/slots.js';
+import type { HistoryBook, HistoryStore } from './history.js';
+import type { Logger } from './libs/logger.js';
 import {
+  type ChatMessage,
   type FeedEntry,
+  type HistoryFile,
   type HistoryLink,
   type HistoryRow,
-  decodeFeedEntry,
-  encodeFeedEntry,
-  makeFeedEntry,
-  rowOf,
-} from './feed/entry.js';
-import type { ChatFeed, SlotRead } from './feed/slots.js';
-import { type HistoryBook, type HistoryFile, type HistoryStore } from './history.js';
-import type { Logger } from './libs/logger.js';
-import type { ChatMessage } from '@solarpunkltd/swarm-chat-js/message';
+  parseFeedEntry,
+} from '@solarpunkltd/swarm-chat-js/message';
 import { DropReason, type Stats } from './stats.js';
 import { RecentIds } from './utils/recentIds.js';
 import { retryDelayMs } from './utils/backoff.js';
@@ -315,20 +314,27 @@ export class ChatPublisher {
   }
 
   private decodeOrBlock(index: number, payload: Uint8Array): FeedEntry {
-    const entry = decodeFeedEntry(payload);
-    if (!entry || entry.seq !== index || entry.msg.topic !== this.topic) {
-      this.block(`slot ${index} holds something this server did not write`);
+    const entry = parseFeedEntry(payload, index, this.topic);
+    if (!entry.ok) {
+      this.block(`slot ${index} holds something this server did not write (${entry.reason}: ${entry.detail})`);
       throw new ResumeError(`slot ${index} is not ours`);
     }
-    return entry;
+    return entry.value;
   }
 
   private async downloadHistory(link: HistoryLink): Promise<HistoryFile> {
+    let file: HistoryFile;
     try {
-      return await this.historyStore.download(link.ref);
+      file = await this.historyStore.download(link, this.topic);
     } catch (error) {
       throw new ResumeError(`history file ${link.ref}: ${errorText(error)}`, { cause: error });
     }
+    if (file.skipped > 0) {
+      this.logger.warn(
+        `[chat ${this.topic}] history file ${link.ref} had ${file.skipped} rows that failed their check`,
+      );
+    }
+    return file;
   }
 
   private async publish(pending: Pending): Promise<void> {

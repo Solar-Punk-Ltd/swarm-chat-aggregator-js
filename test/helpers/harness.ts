@@ -4,10 +4,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { Bee, Identifier, PrivateKey } from '@ethersphere/bee-js';
-import { type ChatMessageDraft, type SignedChatMessage, createChatMessage } from '@solarpunkltd/swarm-chat-js/message';
+import {
+  type ChatMessageDraft,
+  type FeedEntry,
+  type SignedChatMessage,
+  createChatMessage,
+  feedEntrySchema,
+  historyFileSchema,
+  historyRowSchema,
+} from '@solarpunkltd/swarm-chat-js/message';
 
-import type { FeedEntry } from '../../src/feed/entry.js';
-import type { HistoryFile, HistoryLimits } from '../../src/history.js';
+import type { HistoryLimits, UploadedHistoryFile } from '../../src/history.js';
 import { consoleLogger, silentLogger } from '../../src/libs/logger.js';
 import { AggregatorServer } from '../../src/server.js';
 import { type Environment, type Settings, parseSettings } from '../../src/settings.js';
@@ -133,16 +140,20 @@ export class Rig {
     );
   }
 
+  /** The entry the server wrote, checked against the library's own entry schema. */
   entry(index: number, topic = CHAT): FeedEntry | undefined {
-    return this.swarm.slotJson(this.feedOwner, topic, index) as FeedEntry | undefined;
+    const value = this.swarm.slotJson(this.feedOwner, topic, index);
+    return value === undefined ? undefined : feedEntrySchema.parse(value);
   }
 
-  history(ref: string): HistoryFile {
+  /** A history file the server uploaded, checked against the library's file and row schemas. */
+  history(ref: string): UploadedHistoryFile {
     const data = this.swarm.data.get(ref);
     if (!data) {
       throw new Error(`no history file ${ref}`);
     }
-    return JSON.parse(new TextDecoder().decode(data)) as HistoryFile;
+    const file = historyFileSchema.parse(JSON.parse(new TextDecoder().decode(data)));
+    return { ...file, messages: file.messages.map((row) => historyRowSchema.parse(row)) };
   }
 
   async stop(): Promise<void> {
