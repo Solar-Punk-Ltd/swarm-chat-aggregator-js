@@ -56,6 +56,7 @@ const environmentShape = z.object({
   CHAT_TOPICS: topicList,
   CHAT_TOPIC_PATTERN: topicPattern,
   MAX_ACTIVE_CHATS: count(50),
+  CHAT_IDLE_EVICT_MS: milliseconds(10 * MINUTE),
   RATE_WINDOW_MS: milliseconds(MINUTE),
   RATE_PER_CHAT: count(600),
   RATE_PER_SENDER: count(30),
@@ -107,6 +108,7 @@ export type Settings = {
   gsocIdentifier: string;
   allowedChats: { topics: ReadonlySet<string>; pattern: RegExp | undefined; maxActive: number };
   rates: { windowMs: number; perChat: number; perSender: number };
+  chatIdleEvictMs: number;
   queueLimit: number;
   resubscribeIdleMs: number;
   heartbeatIntervalMs: number;
@@ -159,6 +161,7 @@ export function parseSettings(environment: Record<string, string | undefined>): 
       maxActive: env.MAX_ACTIVE_CHATS,
     },
     rates: { windowMs: env.RATE_WINDOW_MS, perChat: env.RATE_PER_CHAT, perSender: env.RATE_PER_SENDER },
+    chatIdleEvictMs: env.CHAT_IDLE_EVICT_MS,
     queueLimit: env.QUEUE_LIMIT,
     resubscribeIdleMs: env.RESUBSCRIBE_IDLE_MS,
     heartbeatIntervalMs: env.HEARTBEAT_INTERVAL_MS,

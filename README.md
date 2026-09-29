@@ -116,7 +116,8 @@ its name. A `.env` file in the working directory is read when it is there.
 | `GSOC_IDENTIFIER`        | required        | the inbox's identifier string                                                                                          |
 | `CHAT_TOPICS`            | one of the two  | the allowed chats, a comma-separated list of topics                                                                    |
 | `CHAT_TOPIC_PATTERN`     | one of the two  | the allowed chats, a regular expression matched against the whole topic                                                |
-| `MAX_ACTIVE_CHATS`       | `50`            | how many chats the server publishes at once                                                                            |
+| `MAX_ACTIVE_CHATS`       | `50`            | how many chats outside `CHAT_TOPICS` the server publishes at once, listed chats are not counted                        |
+| `CHAT_IDLE_EVICT_MS`     | `600000`        | how long a chat outside `CHAT_TOPICS` must be quiet before it may be evicted to make room at the cap                   |
 | `RATE_WINDOW_MS`         | `60000`         | the window the two rates count in                                                                                      |
 | `RATE_PER_CHAT`          | `600`           | messages per window in one chat                                                                                        |
 | `RATE_PER_SENDER`        | `30`            | messages per window from one sender in one chat                                                                        |
@@ -147,6 +148,11 @@ Seven settings replace variables of the 6.x server, which are no longer read:
 - `GSOC_KEY` replaces `GSOC_RESOURCE_ID`.
 - `GSOC_IDENTIFIER` replaces `GSOC_TOPIC`.
 - `HEALTH_PORT` replaces `PORT`.
+
+A known limit: with `CHAT_TOPIC_PATTERN`, anybody can open chats under invented topics until `MAX_ACTIVE_CHATS`
+is reached. A quiet one is evicted to make room for the next chat, but a flood fast enough to fill the cap within
+`CHAT_IDLE_EVICT_MS` holds new chats out until the invented ones go quiet, and `/health` says so. Chats listed in
+`CHAT_TOPICS` are never held out, so listing the event's chats closes it.
 
 The per-sender rate is weak, because a key costs nothing. The per-chat rate and the writing gateway's own
 per-IP limit are the real brakes.

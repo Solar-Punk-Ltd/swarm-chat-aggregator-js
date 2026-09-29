@@ -36,6 +36,8 @@ export type HealthReport = {
   lastSubscribeError: string | null;
   subscribed: boolean;
   resubscribes: number;
+  activeChats: number;
+  evictions: number;
   counts: { received: number; published: number; heartbeats: number; dropped: Record<string, number> };
   chats: (ChatHealth & { secondsSinceLastPublish: number | null })[];
 };
@@ -66,6 +68,8 @@ export class AggregatorServer {
   private health: http.Server | undefined;
   private pruneTimer: NodeJS.Timeout | undefined;
   private stopping = false;
+  private evictions = 0;
+  private lastCapRefusalAt: number | null = null;
 
   constructor(
     private readonly settings: Settings,
@@ -162,6 +166,9 @@ export class AggregatorServer {
     if (overdue(intake.lastHeartbeatReceivedAt)) {
       problems.push('no heartbeat received back on the listener recently');
     }
+    if (this.lastCapRefusalAt !== null && now - this.lastCapRefusalAt < this.settings.chatIdleEvictMs) {
+      problems.push('a new chat was refused recently at MAX_ACTIVE_CHATS, with no quiet chat to evict');
+    }
     const chats = [...this.chats.values()].map((chat) => {
       const health = chat.health();
       if (health.failing) {
@@ -184,6 +191,8 @@ export class AggregatorServer {
       lastSubscribeError: listener.lastSubscribeError,
       subscribed: listener.subscribed,
       resubscribes: listener.resubscribes,
+      activeChats: this.chats.size,
+      evictions: this.evictions,
       counts: {
         received: this.stats.received,
         published: this.stats.published,
@@ -200,7 +209,8 @@ export class AggregatorServer {
     if (existing || this.stopping) {
       return existing;
     }
-    if (this.chats.size >= this.settings.allowedChats.maxActive) {
+    if (!this.settings.allowedChats.topics.has(topic) && !this.makeRoomForPatternChat()) {
+      this.lastCapRefusalAt = Date.now();
       return undefined;
     }
     const settings = this.settings;
@@ -251,6 +261,31 @@ export class AggregatorServer {
     this.chats.set(topic, chat);
     chat.start();
     return chat;
+  }
+
+  /**
+   * Whether one more chat outside CHAT_TOPICS fits under MAX_ACTIVE_CHATS. At the cap the least recently active
+   * such chat that has been quiet for CHAT_IDLE_EVICT_MS is evicted, so topics invented to fill the cap cannot
+   * hold out a real chat for ever. An evicted chat resumes from its checkpoint on its next message.
+   */
+  private makeRoomForPatternChat(now = Date.now()): boolean {
+    const patternChats = [...this.chats.values()].filter((chat) => !this.settings.allowedChats.topics.has(chat.topic));
+    if (patternChats.length < this.settings.allowedChats.maxActive) {
+      return true;
+    }
+    const quiet = patternChats
+      .map((chat) => ({ chat, since: chat.idleSince() }))
+      .filter((candidate): candidate is { chat: ChatPublisher; since: number } => candidate.since !== undefined)
+      .filter((candidate) => now - candidate.since >= this.settings.chatIdleEvictMs)
+      .sort((a, b) => a.since - b.since)[0];
+    if (!quiet) {
+      return false;
+    }
+    quiet.chat.stop();
+    this.chats.delete(quiet.chat.topic);
+    this.evictions += 1;
+    this.logger.info(`[server] evicted the quiet chat ${quiet.chat.topic} to make room at MAX_ACTIVE_CHATS`);
+    return true;
   }
 
   private async saveWithRetries(topic: string, save: () => Promise<string>): Promise<SaveOutcome> {
