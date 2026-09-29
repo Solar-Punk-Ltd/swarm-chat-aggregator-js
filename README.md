@@ -98,10 +98,15 @@ published and dropped messages by reason.
 
 ### Shutdown
 
-On `SIGTERM` or `SIGINT` the server stops taking messages, publishes what is queued and finishes the history
-saves within `SHUTDOWN_DEADLINE_MS`, releases the lock, then exits. An entry still unwritten stays recorded in
-the checkpoint and is sent first after the restart. What was still queued is dropped and logged as dead
-letters.
+On `SIGTERM` or `SIGINT` the server stops taking messages and spends up to `SHUTDOWN_DEADLINE_MS` publishing
+what is queued and finishing the history saves. At the deadline it drops what is still queued, logged as dead
+letters, then waits for any Bee request already sent to answer, which `REQUEST_TIMEOUT_MS` bounds, so the
+checkpoint records whatever landed before it releases the lock and exits. The deadline therefore bounds the
+publishing, not the whole stop, which can take up to about `SHUTDOWN_DEADLINE_MS` plus `REQUEST_TIMEOUT_MS`. An
+entry still unwritten stays recorded in the checkpoint and is sent first after the restart.
+
+A stop that is cut short, by a kill or a crash, loses what was queued without a dead-letter line, and never the
+feed's consistency, which the checkpoint keeps.
 
 ## Settings
 
@@ -187,11 +192,13 @@ With Docker:
 ```bash
 docker build -t swarm-chat-aggregator .
 docker run -d --name swarm-chat-aggregator --env-file .env -v aggregator-checkpoints:/app/checkpoints \
-  --restart unless-stopped swarm-chat-aggregator
+  --stop-timeout 60 --restart unless-stopped swarm-chat-aggregator
 ```
 
-Keep one container per feed key, with its checkpoint volume, and give it at least `LOCK_STALE_MS` to start after
-a kill.
+Docker kills a container 10 seconds after `docker stop` unless told otherwise, which is shorter than a drain. Set
+`--stop-timeout`, or `stop_grace_period` in Compose, above `SHUTDOWN_DEADLINE_MS` plus `REQUEST_TIMEOUT_MS`,
+which is 50 seconds with the defaults, so 60 above. Keep one container per feed key, with its checkpoint volume,
+and give it at least `LOCK_STALE_MS` to start after a kill.
 
 ## Development
 
