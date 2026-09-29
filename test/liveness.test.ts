@@ -68,8 +68,9 @@ describe('subscription', () => {
     let most = 0;
     const watch = setInterval(() => (most = Math.max(most, rig.listener.subscriberCount)), 5);
     await waitFor(() => server.healthReport().resubscribes >= 1, 5000, 'a resubscribe');
+    await waitFor(() => most === 2, 2000, 'the old and the new subscription open at once');
+    await waitFor(() => rig.listener.subscriberCount === 1, 2000, 'the old one closed');
     clearInterval(watch);
-    expect(most).toBe(2);
 
     rig.listener.faults.gsocDeaf = false;
     const before = server.stats.heartbeatsReceived;
