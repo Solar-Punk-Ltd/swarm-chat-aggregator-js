@@ -293,9 +293,12 @@ export class Cluster {
     );
   }
 
-  /** A stamp on the worker, sized from the chain's current price to last `days`, once it is usable. */
-  async buyStamp({ depth = 20, days = 7 } = {}) {
-    const url = this.url('worker');
+  /**
+   * A stamp bought on one node, the worker unless named, sized from the chain's current price to last `days`, once it
+   * is usable. Only the node that bought a stamp can stamp with it, since its issuer state lives there.
+   */
+  async buyStamp({ role = 'worker', depth = 20, days = 7 } = {}) {
+    const url = this.url(role);
     const { currentPrice } = await httpJson(`${url}/chainstate`);
     const amount = BigInt(currentPrice) * BigInt((days * 86_400) / BLOCK_SECONDS) + 1n;
     this.log(`stamp: price ${currentPrice} per block, amount ${amount}, depth ${depth}`);

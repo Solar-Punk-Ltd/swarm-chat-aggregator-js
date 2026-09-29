@@ -48,12 +48,54 @@ function receiveOne(bee, address, identifier) {
   };
 }
 
-async function gsocRoundTrip(cluster, batchId) {
+const CONTROL_TIMEOUT_MS = 60_000;
+
+/** Runs one write and records its outcome and duration under observations. It never throws. */
+async function control(beeVersion, label, write) {
+  const answer = await answerOf(async () => {
+    const result = await write();
+    return { status: 'answered', text: JSON.stringify(result ?? null) };
+  });
+  observations.push(`Bee ${beeVersion} control, ${label}: ${answer}`);
+}
+
+/**
+ * Two writes before the GSOC send, to tell a push that never leaves the worker apart from something in SOC or GSOC: a
+ * direct POST /bytes through the worker, which needs a push and no SOC, and a /soc write on the queen with the queen's
+ * own stamp, which is a SOC that needs no push to another node.
+ */
+async function runControls(cluster, beeVersion, workerStamp, queenStamp, key) {
+  await control(beeVersion, 'direct POST /bytes through the worker', () =>
+    httpJson(`${cluster.url('worker')}/bytes`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'swarm-postage-batch-id': workerStamp,
+        'swarm-deferred-upload': 'false',
+      },
+      body: randomBytes(64),
+      timeoutMs: CONTROL_TIMEOUT_MS,
+    }),
+  );
+  await control(beeVersion, '/soc write on the queen with its own stamp', () =>
+    new Bee(cluster.url('queen')).messaging.gsocSend(
+      queenStamp,
+      key,
+      Identifier.fromString(`bed-control-${cluster.runId}`),
+      `control ${randomBytes(8).toString('hex')}`,
+      undefined,
+      { signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS) },
+    ),
+  );
+}
+
+async function gsocRoundTrip(cluster, beeVersion, batchId, queenStamp) {
   const listener = new Bee(cluster.url('queen'));
   const sender = new Bee(cluster.url('worker'));
   const { overlay } = await httpJson(`${cluster.url('queen')}/addresses`);
   const identifier = Identifier.fromString(`bed-spike-${cluster.runId}`);
   const key = await timed('mine the GSOC key', () => listener.messaging.gsocMine(overlay, identifier));
+  await runControls(cluster, beeVersion, batchId, queenStamp, key);
 
   const { received, cancel } = receiveOne(listener, key.publicKey().address(), identifier);
   await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -140,7 +182,8 @@ async function spike(beeVersion) {
     }
     await probeAbsentSlot(cluster, beeVersion);
     const batchId = await timed(`${beeVersion} stamp usable`, () => cluster.buyStamp());
-    await gsocRoundTrip(cluster, batchId);
+    const queenStamp = await timed(`${beeVersion} queen stamp usable`, () => cluster.buyStamp({ role: 'queen' }));
+    await gsocRoundTrip(cluster, beeVersion, batchId, queenStamp);
     log(`PASS Bee ${beeVersion}: started on fdp-play's chain, bought a stamp, delivered a GSOC message`);
     return true;
   } catch (error) {
