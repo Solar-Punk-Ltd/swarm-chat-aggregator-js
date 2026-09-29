@@ -2,11 +2,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { parseChatMessage } from 'swarm-chat-js-v7/message';
-
 import { FeedFollower } from './feed.mjs';
 import { FeedLedger, isClean } from './ledger.mjs';
-import { PayloadFormat, payloadsFor, randomKey } from './payloads.mjs';
+import { parseChatMessage, PayloadFormat, payloadsFor, randomKey } from './payloads.mjs';
 import { GsocSender, SendOutcome } from './sender.mjs';
 
 const decode = (bytes) => new TextDecoder().decode(bytes);
