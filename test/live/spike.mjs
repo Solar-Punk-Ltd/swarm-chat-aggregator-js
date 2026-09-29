@@ -50,10 +50,35 @@ function receiveOne(bee, address, identifier) {
 
 const CONTROL_TIMEOUT_MS = 60_000;
 
-/** Runs one write and records its outcome and duration under observations. It never throws. */
+/**
+ * Runs `call` with the global fetch, which bee-js uses, wrapped so each raw reply is recorded from a clone: status,
+ * content type and encoding, length, and the first bytes in hex. It shows what bee-js was handed when it fails to
+ * read a reply.
+ */
+async function withRawReplies(label, call) {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const response = await original(url, init);
+    const bytes = new Uint8Array(await response.clone().arrayBuffer());
+    const header = (name) => response.headers.get(name) ?? '-';
+    observations.push(
+      `${label}, raw reply to ${init?.method ?? 'GET'} ${new URL(url).pathname.slice(0, 40)}: ${response.status}` +
+        ` type ${header('content-type')} encoding ${header('content-encoding')} length ${bytes.length}` +
+        ` first bytes ${Buffer.from(bytes.slice(0, 48)).toString('hex')}`,
+    );
+    return response;
+  };
+  try {
+    return await call();
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+/** Runs one write and records its outcome, duration and raw replies under observations. It never throws. */
 async function control(beeVersion, label, write) {
   const answer = await answerOf(async () => {
-    const result = await write();
+    const result = await withRawReplies(`Bee ${beeVersion} control, ${label}`, write);
     return { status: 'answered', text: JSON.stringify(result ?? null) };
   });
   observations.push(`Bee ${beeVersion} control, ${label}: ${answer}`);
@@ -130,9 +155,11 @@ async function gsocRoundTrip(cluster, beeVersion, batchId, queenStamp) {
   await new Promise((resolve) => setTimeout(resolve, 1000));
   const payload = `spike ${randomBytes(8).toString('hex')}`;
   try {
-    await sender.messaging.gsocSend(batchId, key, identifier, payload, undefined, {
-      signal: AbortSignal.timeout(30_000),
-    });
+    await withRawReplies(`Bee ${beeVersion} GSOC send through the worker`, () =>
+      sender.messaging.gsocSend(batchId, key, identifier, payload, undefined, {
+        signal: AbortSignal.timeout(30_000),
+      }),
+    );
     const got = await timed('GSOC delivery', () =>
       Promise.race([
         received,
