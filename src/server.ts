@@ -171,6 +171,14 @@ export class AggregatorServer {
     }
     const chats = [...this.chats.values()].map((chat) => {
       const health = chat.health();
+      if (health.lastHistoryError) {
+        problems.push(`chat ${health.topic}: history save failed: ${health.lastHistoryError}`);
+      }
+      if (health.historyTrail > this.settings.historyTrailLimit) {
+        problems.push(
+          `chat ${health.topic}: ${health.historyTrail} rows since the last saved history file, over HISTORY_TRAIL_LIMIT`,
+        );
+      }
       if (health.failing) {
         const stall = health.stall
           ? `, slot ${health.stall.slot} stuck for ${health.stall.stuckSeconds} s after ${health.stall.attempts} attempts`
