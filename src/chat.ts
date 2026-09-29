@@ -171,6 +171,9 @@ export class ChatPublisher {
   stop(): void {
     this.accepting = false;
     this.stopped = true;
+    if (this.stateValue !== ChatState.Blocked) {
+      this.stateValue = ChatState.Stopped;
+    }
     this.signalStop();
     if (this.pending && !this.pending.persisted) {
       this.stats.drop(DropReason.Shutdown);
