@@ -32,7 +32,7 @@ const ENVIRONMENT = {
     CHAT_STAMP: s.writeStamp,
     PORT: String(s.port),
   }),
-  [ServerKind.EVENT]: (s) => ({
+  [ServerKind.EVENT]: (s, checkpointDir) => ({
     LISTEN_BEE_URL: s.listenUrl,
     WRITE_BEE_URL: s.writeUrl,
     HEARTBEAT_BEE_URL: s.writeUrl,
@@ -47,6 +47,12 @@ const ENVIRONMENT = {
     HEARTBEAT_STALE_MS: '10000',
     RESUBSCRIBE_IDLE_MS: '15000',
     LOCK_STALE_MS: '15000',
+    // Two nodes give each one connected peer, and the server starts a chat without a checkpoint only once it
+    // counts this many.
+    MIN_CONNECTED_PEERS: '1',
+    // Empty on every run and kept across B2's restart, since the server refuses a folder of an older checkpoint
+    // format as damaged.
+    CHECKPOINT_DIR: checkpointDir,
   }),
 };
 
@@ -68,7 +74,11 @@ export class ServerProcess {
 
   async start() {
     const entry = resolve('dist/index.js');
-    const env = { PATH: process.env.PATH, NODE_ENV: 'test', ...ENVIRONMENT[this.kind](this.settings) };
+    const env = {
+      PATH: process.env.PATH,
+      NODE_ENV: 'test',
+      ...ENVIRONMENT[this.kind](this.settings, join(this.workdir, 'checkpoints')),
+    };
     this.child = spawn(process.execPath, [entry], { cwd: this.workdir, env, stdio: ['ignore', 'pipe', 'pipe'] });
     this.child.stdout.pipe(this.logStream, { end: false });
     this.child.stderr.pipe(this.logStream, { end: false });
