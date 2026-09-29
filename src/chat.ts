@@ -82,6 +82,7 @@ export class ChatPublisher {
   private readonly queuedIds = new Set<string>();
   private readonly publishedIds = new RecentIds(RECENT_ID_LIMIT);
   private lastPublishAt: number | null = null;
+  private lastActivityAt = Date.now();
   private startedWithoutCheckpoint = false;
   private lastError: string | null = null;
   private failing = false;
@@ -125,6 +126,16 @@ export class ChatPublisher {
     });
   }
 
+  /**
+   * The time the chat last took or published a message, or undefined while it holds work (a queue, a pending
+   * entry, a history save or a resume). Only a chat with nothing to lose may be evicted to make room for another.
+   */
+  idleSince(): number | undefined {
+    const settled = this.stateValue === ChatState.Ready || this.stateValue === ChatState.Blocked;
+    const busy = this.queue.length > 0 || this.pending !== undefined || this.history.isSaving;
+    return settled && !busy ? this.lastActivityAt : undefined;
+  }
+
   isDuplicate(message: ChatMessage): boolean {
     const key = messageKey(message);
     return this.publishedIds.has(key) || this.queuedIds.has(key);
@@ -146,6 +157,7 @@ export class ChatPublisher {
       return DropReason.QueueFull;
     }
     this.queue.push({ msg: message, at });
+    this.lastActivityAt = Date.now();
     this.queuedIds.add(messageKey(message));
     this.wake?.();
     return undefined;
@@ -505,6 +517,7 @@ export class ChatPublisher {
     this.history.append(row);
     this.stats.published += 1;
     this.lastPublishAt = Date.now();
+    this.lastActivityAt = this.lastPublishAt;
     this.lastError = null;
     this.failing = false;
     await this.writeCheckpoint();

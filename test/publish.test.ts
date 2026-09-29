@@ -96,3 +96,52 @@ describe('rates', () => {
     await waitFor(() => server.stats.published === 3, 5000, 'three published');
   });
 });
+
+describe('the active chat cap', () => {
+  test('evicts an idle pattern chat to make room, and the evicted chat resumes from its checkpoint later', async () => {
+    const server = await rig.startServer({ MAX_ACTIVE_CHATS: '1', CHAT_IDLE_EVICT_MS: '200' });
+    await rig.send(message({ topic: 'chat-pattern-1', text: 'first chat' }));
+    await waitFor(() => rig.entry(0, 'chat-pattern-1') !== undefined, 5000, 'first chat');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await rig.send(message({ topic: 'chat-pattern-2', text: 'second chat' }));
+    await waitFor(() => rig.entry(0, 'chat-pattern-2') !== undefined, 5000, 'second chat');
+    expect(server.healthReport().evictions).toBe(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await rig.send(message({ topic: 'chat-pattern-1', text: 'first chat again' }));
+    await waitFor(() => rig.entry(1, 'chat-pattern-1') !== undefined, 5000, 'first chat, slot 1');
+    expect(rig.entry(1, 'chat-pattern-1')?.msg.text).toBe('first chat again');
+    expect(server.healthReport().evictions).toBe(2);
+  });
+
+  test('refuses a new chat when every active chat is busy, and says so on /health', async () => {
+    const server = await rig.startServer({ MAX_ACTIVE_CHATS: '1', CHAT_IDLE_EVICT_MS: '60000' });
+    await rig.send(message({ topic: 'chat-pattern-1' }));
+    await waitFor(() => rig.entry(0, 'chat-pattern-1') !== undefined, 5000, 'first chat');
+    await rig.send(message({ topic: 'chat-pattern-2' }));
+    await waitFor(() => server.stats.dropped.get('chat-limit') === 1, 5000, 'the refusal');
+    const report = server.healthReport();
+    expect(report.healthy).toBe(false);
+    expect(report.problems.join(' ')).toContain('MAX_ACTIVE_CHATS');
+  });
+
+  test('a chat listed in CHAT_TOPICS is never held out by the cap', async () => {
+    const server = await rig.startServer({ MAX_ACTIVE_CHATS: '1', CHAT_IDLE_EVICT_MS: '60000' });
+    await rig.send(message({ topic: 'chat-pattern-1' }));
+    await waitFor(() => rig.entry(0, 'chat-pattern-1') !== undefined, 5000, 'pattern chat');
+    await rig.send(message({ text: 'listed chat' }));
+    await waitFor(() => rig.entry(0) !== undefined, 5000, 'listed chat');
+    expect(server.stats.dropped.get('chat-limit')).toBeUndefined();
+  });
+
+  test('never evicts a chat with a message waiting', async () => {
+    const server = await rig.startServer({ MAX_ACTIVE_CHATS: '1', CHAT_IDLE_EVICT_MS: '200' });
+    rig.writer.faults.writeFailures = 1_000_000;
+    await rig.send(message({ topic: 'chat-pattern-1', text: 'stuck' }));
+    await waitFor(() => server.healthReport().chats[0]?.stall !== null, 5000, 'the stall');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await rig.send(message({ topic: 'chat-pattern-2' }));
+    await waitFor(() => server.stats.dropped.get('chat-limit') === 1, 5000, 'the refusal');
+    expect(server.healthReport().evictions).toBe(0);
+  });
+});
