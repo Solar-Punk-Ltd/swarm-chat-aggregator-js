@@ -10,7 +10,7 @@ import { parseArgs } from 'node:util';
 
 import { Bee, Identifier } from '@ethersphere/bee-js';
 
-import { Cluster, httpJson, removeLeftovers } from './cluster.mjs';
+import { BEE_ROLES, Cluster, httpJson, removeLeftovers } from './cluster.mjs';
 import { PayloadFormat, randomKey } from './payloads.mjs';
 import { SCENARIOS } from './scenarios.mjs';
 import { ServerKind, ServerProcess } from './server.mjs';
@@ -104,7 +104,7 @@ try {
   }
 } catch (error) {
   log(`the bed could not run: ${error.stack ?? error}`);
-  for (const role of ['queen', 'worker', 'chain']) log(`--- last log lines of ${role}\n${cluster.containerLogs(role)}`);
+  for (const role of [...BEE_ROLES, 'chain']) log(`--- last log lines of ${role}\n${cluster.containerLogs(role)}`);
 } finally {
   await server?.stop();
   if (server) log(`--- last log lines of the server\n${server.logTail()}`);

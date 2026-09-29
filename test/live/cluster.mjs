@@ -20,6 +20,7 @@ const FDP_PLAY = {
   imageTag: '2.6.0',
   queenImage: 'fairdatasociety/fdp-play-queen',
   workerImage: 'fairdatasociety/fdp-play-worker-1',
+  thirdImage: 'fairdatasociety/fdp-play-worker-2',
   chainImage: 'fairdatasociety/fdp-play-blockchain',
   chainVersionLabels: ['org.ethswarm.beefactory.blockchain-version', 'org.fairdatasociety.fdp-play.blockchain-version'],
   chainArgs: [
@@ -69,6 +70,7 @@ const FDP_PLAY = {
 
 /** Where both Bee's own Dockerfile and its release Dockerfile put the program, 2.6 to 2.8. */
 const BEE_PROGRAM = '/usr/local/bin/bee';
+export const BEE_ROLES = ['queen', 'worker', 'third'];
 const BEE_API_PORT = 1633;
 /** Bee's own default block time, which fdp-play leaves unset. */
 const BLOCK_SECONDS = 5;
@@ -121,7 +123,8 @@ function chainVersionOf(image) {
 
 /** fdp-play's own image for that role, with its Bee program swapped for the requested release. */
 function beeImageFor(beeVersion, role) {
-  const fdpPlayImage = `${role === 'queen' ? FDP_PLAY.queenImage : FDP_PLAY.workerImage}:${FDP_PLAY.imageTag}`;
+  const images = { queen: FDP_PLAY.queenImage, worker: FDP_PLAY.workerImage, third: FDP_PLAY.thirdImage };
+  const fdpPlayImage = `${images[role]}:${FDP_PLAY.imageTag}`;
   if (beeVersion === FDP_PLAY.imageTag) return fdpPlayImage;
 
   const tag = `swarm-chat-bed-${role}:${beeVersion}`;
@@ -162,7 +165,12 @@ export class Cluster {
     this.runId = runId;
     this.log = log;
     this.network = `bed-${runId}`;
-    this.names = { chain: `bed-${runId}-chain`, queen: `bed-${runId}-queen`, worker: `bed-${runId}-worker` };
+    this.names = {
+      chain: `bed-${runId}-chain`,
+      queen: `bed-${runId}-queen`,
+      worker: `bed-${runId}-worker`,
+      third: `bed-${runId}-third`,
+    };
     this.self = null;
   }
 
@@ -203,17 +211,25 @@ export class Cluster {
     ]);
     await waitFor('the chain RPC', () => this.chainBlockNumber(), { timeoutMs: 120_000 });
 
-    const images = { queen: beeImageFor(this.beeVersion, 'queen'), worker: beeImageFor(this.beeVersion, 'worker') };
     const options = FDP_PLAY.beeOptions(this.names.chain);
 
-    this.runBee('queen', images.queen, { ...options, 'bootnode-mode': 'false' });
+    this.runBee('queen', beeImageFor(this.beeVersion, 'queen'), { ...options, 'bootnode-mode': 'false' });
     await this.waitHealthy('queen');
     const underlay = await this.underlayOf('queen');
-    this.runBee('worker', images.worker, { ...options, bootnode: underlay });
+    this.runBee('worker', beeImageFor(this.beeVersion, 'worker'), { ...options, bootnode: underlay });
     await this.waitHealthy('worker');
     await this.waitPeered();
-    await this.waitWarmedUp('queen');
-    await this.waitWarmedUp('worker');
+    // The third node joins once the other two have started. Bee 2.6's NewBee closes its warm-up detector on return,
+    // which drops a peer event from during start-up, so a node whose only peer arrived then never warms up. The third
+    // node's arrival is a peer event after start-up on both. It is also a second peer for each node's health service.
+    this.runBee('third', beeImageFor(this.beeVersion, 'third'), { ...options, bootnode: underlay });
+    await this.waitHealthy('third');
+    await waitFor(
+      'the queen to see both other nodes',
+      async () => (await httpJson(`${this.url('queen')}/peers`)).peers.length >= 2,
+      { timeoutMs: 180_000 },
+    );
+    for (const role of BEE_ROLES) await this.waitWarmedUp(role);
   }
 
   /**
@@ -245,7 +261,7 @@ export class Cluster {
         allowFailure: true,
       });
       if (created.status === 0) {
-        this.addresses = { queen: `${prefix}.10`, worker: `${prefix}.11` };
+        this.addresses = { queen: `${prefix}.10`, worker: `${prefix}.11`, third: `${prefix}.12` };
         return;
       }
       if (!/overlap/i.test(created.stderr)) throw new Error(`docker network create failed: ${created.stderr}`);
@@ -350,7 +366,7 @@ export class Cluster {
     const dir = join(RESULTS_DIR, `${label}-${this.runId}`);
     mkdirSync(dir, { recursive: true });
     for (const [role, name] of Object.entries(this.names)) saveContainerLog(name, join(dir, `${role}.log`));
-    for (const role of ['queen', 'worker']) {
+    for (const role of BEE_ROLES) {
       for (const endpoint of ['status', 'status/peers', 'topology']) {
         let body;
         try {
