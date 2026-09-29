@@ -24,3 +24,6 @@ yalc.lock
 *.njsproj
 *.sln
 *.sw?
+
+# Local state
+checkpoints
