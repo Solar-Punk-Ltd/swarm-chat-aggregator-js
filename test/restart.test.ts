@@ -76,6 +76,14 @@ describe('restart', () => {
     expect(rig.entry(0)?.msg.text).toBe('message 0');
   });
 
+  test('a 404 from the lookup with an unreadable chunk in slot 0 stops the chat instead of starting it', async () => {
+    rig.swarm.corruptSlot(rig.feedOwner, CHAT, 0);
+    rig.writer.faults.feedLookup = { status: 404 };
+    const server = await publishOne();
+    await waitFor(() => server.healthReport().chats[0]?.state === 'blocked', 5000, 'blocked');
+    expect(rig.writer.socWrites).toBe(0);
+  });
+
   test('starts a chat at slot 0 only when the lookup and two reads of slot 0 all answer 404', async () => {
     rig.writer.faults.feedLookup = { status: 404 };
     await publishOne();
