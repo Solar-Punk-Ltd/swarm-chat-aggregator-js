@@ -402,6 +402,7 @@ export class Cluster {
   async waitHealthy(role) {
     const alive = () =>
       docker(['container', 'inspect', '-f', '{{.State.Running}}', this.names[role]]).stdout === 'true';
+    let notReadyAnswer = null;
     await waitFor(
       `${role} to become ready`,
       async () => {
@@ -409,9 +410,17 @@ export class Cluster {
           throw new WaitAbandoned(`${role} container exited. Its last log lines:\n${this.containerLogs(role)}`);
         }
         const response = await fetch(`${this.url(role)}/readiness`, { signal: AbortSignal.timeout(5000) });
+        if (!response.ok && notReadyAnswer === null) {
+          notReadyAnswer = `${response.status} ${(await response.text()).slice(0, 160).replace(/\s+/g, ' ')}`;
+        }
         return response.ok;
       },
       { timeoutMs: 300_000 },
+    );
+    this.observe(
+      `Bee ${this.beeVersion} ${role} /readiness while not ready: ${
+        notReadyAnswer ?? 'never seen, ready on the first answer'
+      }`,
     );
   }
 
