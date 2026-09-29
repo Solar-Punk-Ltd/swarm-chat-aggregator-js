@@ -211,6 +211,26 @@ export class Cluster {
     this.runBee('worker', images.worker, { ...options, bootnode: underlay });
     await this.waitHealthy('worker');
     await this.waitPeered();
+    await this.waitWarmedUp('queen');
+    await this.waitWarmedUp('worker');
+  }
+
+  /**
+   * Bee refuses to push a chunk until its warm-up has finished (pushsync's pushToClosest returns ErrWarmup), and a
+   * direct write such as a GSOC send then waits on that push. So nothing is sent before /status says warmed up.
+   */
+  async waitWarmedUp(role) {
+    const started = Date.now();
+    const status = await waitFor(
+      `${role} to finish warming up`,
+      async () => {
+        const body = await httpJson(`${this.url(role)}/status`, { timeoutMs: 5000 });
+        return body.isWarmingUp === false || body.isWarmingUp === undefined ? body : null;
+      },
+      { timeoutMs: 600_000 },
+    );
+    const reported = status.isWarmingUp === undefined ? ', its /status has no isWarmingUp' : '';
+    this.log(`${role} warmed up after ${Date.now() - started} ms${reported}`);
   }
 
   /**
@@ -261,6 +281,7 @@ export class Cluster {
     docker(['container', 'start', this.names[role]]);
     await this.waitHealthy(role);
     await this.waitPeered();
+    await this.waitWarmedUp(role);
   }
 
   async waitPeered() {
