@@ -110,6 +110,26 @@ describe('history', () => {
     expect(rig.history(server.healthReport().chats[0]?.history?.ref ?? '').messages).toHaveLength(1);
   });
 
+  test('failing history saves and a long unsaved trail show on /health', async () => {
+    const server = await rig.startServer({ HISTORY_TRAIL_LIMIT: '2' });
+    rig.writer.faults.dataUploadFailures = 1_000_000;
+    for (let i = 0; i < 3; i++) {
+      await rig.send(message({ text: `unsaved ${i}` }));
+    }
+    await waitFor(() => server.stats.published === 3, 5000, 'published');
+    await waitFor(() => server.healthReport().chats[0]?.lastHistoryError !== null, 5000, 'the save error');
+    const report = server.healthReport();
+    expect(report.healthy).toBe(false);
+    expect(report.chats[0]?.historyTrail).toBe(3);
+    expect(report.problems.join(' ')).toContain('history save failed');
+    expect(report.problems.join(' ')).toContain('3 rows');
+
+    rig.writer.faults.dataUploadFailures = 0;
+    await rig.send(message({ text: 'saved at last' }));
+    await waitFor(() => server.healthReport().chats[0]?.historyTrail === 0, 5000, 'the trail cleared');
+    expect(server.healthReport().healthy).toBe(true);
+  });
+
   test('a burst of messages costs at most two saves', async () => {
     const server = await rig.startServer();
     rig.writer.faults.dataUploadDelayMs = 400;

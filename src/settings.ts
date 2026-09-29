@@ -67,6 +67,7 @@ const environmentShape = z.object({
   READ_RECHECK_MS: milliseconds(3 * SECOND),
   REQUEST_TIMEOUT_MS: milliseconds(30 * SECOND),
   HISTORY_TIMEOUT_MS: milliseconds(3 * MINUTE),
+  HISTORY_TRAIL_LIMIT: count(500),
   RESUME_RETRY_MS: milliseconds(30 * SECOND),
   PUBLISH_ATTEMPTS: count(6),
   RETRY_BASE_MS: milliseconds(SECOND),
@@ -116,6 +117,7 @@ export type Settings = {
   readRecheckMs: number;
   requestTimeoutMs: number;
   historyTimeoutMs: number;
+  historyTrailLimit: number;
   resumeRetryMs: number;
   publishAttempts: number;
   retryBaseMs: number;
@@ -169,6 +171,7 @@ export function parseSettings(environment: Record<string, string | undefined>): 
     readRecheckMs: env.READ_RECHECK_MS,
     requestTimeoutMs: env.REQUEST_TIMEOUT_MS,
     historyTimeoutMs: env.HISTORY_TIMEOUT_MS,
+    historyTrailLimit: env.HISTORY_TRAIL_LIMIT,
     resumeRetryMs: env.RESUME_RETRY_MS,
     publishAttempts: env.PUBLISH_ATTEMPTS,
     retryBaseMs: env.RETRY_BASE_MS,

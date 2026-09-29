@@ -50,6 +50,8 @@ export type ChatHealth = {
   /** The chat started at slot 0 with no checkpoint, after its controls passed. */
   startedWithoutCheckpoint: boolean;
   historySaving: boolean;
+  lastHistoryError: string | null;
+  historyTrail: number;
   history: HistoryLink | null;
 };
 
@@ -218,6 +220,8 @@ export class ChatPublisher {
           : null,
       startedWithoutCheckpoint: this.startedWithoutCheckpoint,
       historySaving: this.history.isSaving,
+      lastHistoryError: this.history.lastSaveError,
+      historyTrail: this.history.trail,
       history: this.history.newestLink,
     };
   }

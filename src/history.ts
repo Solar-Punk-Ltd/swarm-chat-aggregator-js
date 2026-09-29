@@ -50,6 +50,7 @@ export class HistoryBook {
   private newest: HistoryLink | null;
   private saving: Promise<void> | undefined;
   private dirty = false;
+  private lastSaveErrorValue: string | null = null;
 
   constructor(
     private readonly topic: string,
@@ -98,6 +99,16 @@ export class HistoryBook {
     return [...this.closed, this.current].flatMap((file) => file.rows.filter((row) => row.seq > toSeq));
   }
 
+  /** Why the last save failed, until one succeeds. */
+  get lastSaveError(): string | null {
+    return this.lastSaveErrorValue;
+  }
+
+  /** How many published rows no saved file holds yet, which a restart keeps in the checkpoint meanwhile. */
+  get trail(): number {
+    return this.rowsAfter(this.newest?.toSeq ?? -1).length;
+  }
+
   get isSaving(): boolean {
     return this.saving !== undefined;
   }
@@ -142,9 +153,11 @@ export class HistoryBook {
       if (pending.savedAs?.toSeq !== file.toSeq) {
         const outcome = await this.saveWithRetries(() => this.store.upload(file));
         if (outcome.kind === 'failed') {
+          this.lastSaveErrorValue = outcome.error;
           this.dirty = true;
           return;
         }
+        this.lastSaveErrorValue = null;
         pending.savedAs = { ref: outcome.ref, toSeq: file.toSeq };
         if (this.newest === null || file.toSeq >= this.newest.toSeq) {
           this.newest = pending.savedAs;
