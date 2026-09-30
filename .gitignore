@@ -27,3 +27,4 @@ yalc.lock
 
 # Local state
 checkpoints
+test-results/
