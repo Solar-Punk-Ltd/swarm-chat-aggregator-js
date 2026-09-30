@@ -195,6 +195,11 @@ is reached. A quiet one is evicted to make room for the next chat, but a flood f
 The per-sender rate is weak, because a key costs nothing. The per-chat rate and the writing gateway's own
 per-IP limit are the real brakes.
 
+A known limit, recorded for a later fix: `GET /health` listens on every interface, since no setting names the
+address it binds. A container on the host's network is therefore reachable at `HEALTH_PORT` from outside unless
+the firewall closes it, so keep that port closed on the public interface. The body carries counts and state,
+never a secret. A `HEALTH_HOST` setting would bind it to loopback.
+
 ## Mining the inbox key
 
 The inbox key must place the inbox address in the listening node's neighbourhood. After `pnpm build`:
