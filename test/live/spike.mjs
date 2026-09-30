@@ -5,10 +5,20 @@ import { randomBytes } from 'node:crypto';
 
 import { Bee, Bytes, FeedIndex, Identifier, Topic } from '@ethersphere/bee-js';
 
-import { BEE_ROLES, Cluster, httpJson, removeLeftovers } from './cluster.mjs';
+import { BEE_ROLES, beeBuildNote, Cluster, httpJson, removeLeftovers } from './cluster.mjs';
 import { randomKey } from './payloads.mjs';
 
 const BEE_VERSIONS = (process.env.BED_BEE_VERSIONS ?? '2.8.2,2.6.0').split(',').map((v) => v.trim());
+/**
+ * The versions this run expects to fail. 2.6.0 runs as the released image, which never stores a pushed chunk on a
+ * private network, so it is the control that shows the failure the built 2.8.2 arm exists to get past.
+ */
+const EXPECTED_FAILURES = new Set(
+  (process.env.BED_SPIKE_EXPECT_FAIL ?? '2.6.0')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean),
+);
 
 const observations = [];
 const log = (line) => console.log(`[bed] ${line}`);
@@ -239,8 +249,9 @@ async function probeAbsentSlot(cluster, beeVersion) {
 
 async function spike(beeVersion) {
   const runId = randomBytes(4).toString('hex');
-  const cluster = new Cluster({ beeVersion, runId, log });
+  const cluster = new Cluster({ beeVersion, runId, log, observe: (line) => observations.push(line) });
   log(`=== Bee ${beeVersion}, run ${runId}`);
+  log(beeBuildNote(beeVersion));
   try {
     await timed(`${beeVersion} cluster up`, () => cluster.start());
     for (const role of ['queen', 'worker']) {
@@ -270,6 +281,13 @@ for (const version of BEE_VERSIONS) results[version] = await spike(version);
 console.log('\n[bed] observations, none of them asserted');
 for (const line of observations) console.log(`[bed]   ${line}`);
 console.log('\n[bed] result');
-for (const [version, passed] of Object.entries(results))
-  console.log(`[bed]   Bee ${version}: ${passed ? 'PASS' : 'FAIL'}`);
-process.exit(Object.values(results).every(Boolean) ? 0 : 1);
+for (const version of BEE_VERSIONS) console.log(`[bed]   ${beeBuildNote(version)}`);
+const unexpected = [];
+for (const [version, passed] of Object.entries(results)) {
+  const expectedToFail = EXPECTED_FAILURES.has(version);
+  console.log(`[bed]   Bee ${version}: ${passed ? 'PASS' : 'FAIL'}${expectedToFail ? ', expected to fail' : ''}`);
+  if (passed === expectedToFail) unexpected.push(version);
+}
+if (unexpected.length) console.log(`[bed]   not as this run expected: Bee ${unexpected.join(', ')}`);
+else console.log('[bed]   every version did what this run expected');
+process.exit(unexpected.length ? 1 : 0);

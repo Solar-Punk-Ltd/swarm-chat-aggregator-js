@@ -121,19 +121,72 @@ function chainVersionOf(image) {
   return key ? labels[key] : 'latest';
 }
 
-/** fdp-play's own image for that role, with its Bee program swapped for the requested release. */
-function beeImageFor(beeVersion, role) {
+/**
+ * Bee releases the bed builds from source rather than taking the published image. A released Bee never counts itself
+ * reachable on a private network, so pushsync never stores a pushed chunk (pushsync.go:302) and every push loops between
+ * the nodes until its allowance runs out. REACHABILITY_OVERRIDE_PUBLIC=true, a value compiled in, makes it count
+ * itself reachable. It is the setting fdp-play builds its own local-cluster images with since November 2025, and no
+ * published image carries it. The source is pinned by commit and the Go image by digest.
+ */
+export const BEE_BUILDS = {
+  '2.8.2': { tag: 'v2.8.2', commit: '7e703f495c929eecde5155734760b5611ad4fd0f' },
+};
+/** Said at the start of every run that uses a built Bee, so no reader takes it for the released binary. */
+export function beeBuildNote(beeVersion) {
+  const build = BEE_BUILDS[beeVersion];
+  return build
+    ? `Bee ${beeVersion} here is ${build.tag} at ${build.commit.slice(0, 8)} built from source with ` +
+        'REACHABILITY_OVERRIDE_PUBLIC=true, the setting fdp-play uses for local clusters, because a released Bee never ' +
+        'counts itself reachable on a private network and so never stores a pushed chunk. It is not the released binary.'
+    : `Bee ${beeVersion} here is the released image.`;
+}
+const GO_IMAGE = 'golang:1.26@sha256:6c2a5538f964f1c82f97ad14988bf05de100d922d159d0e398b54c7b0ca0c6c9';
+const BUILT_BEE = '/src/dist/bee';
+const builtBeeImages = new Map();
+
+/** The image holding a Bee binary built with the reachability override, built once per version and run. */
+function builtBeeImage(beeVersion, report) {
+  if (builtBeeImages.has(beeVersion)) return builtBeeImages.get(beeVersion);
+  const { tag, commit } = BEE_BUILDS[beeVersion];
+  const image = `swarm-chat-bed-bee-build:${beeVersion}`;
+  const context = mkdtempSync(join(tmpdir(), 'swarm-chat-bed-bee-'));
+  writeFileSync(
+    join(context, 'Dockerfile'),
+    `FROM ${GO_IMAGE}\n` +
+      `RUN git clone --depth 1 --branch ${tag} https://github.com/ethersphere/bee.git /src && \\\n` +
+      `    head="$(git -C /src rev-parse HEAD)" && \\\n` +
+      `    if [ "$head" != "${commit}" ]; then echo "bee ${tag} is $head, expected ${commit}" >&2; exit 1; fi\n` +
+      'WORKDIR /src\n' +
+      'RUN make binary REACHABILITY_OVERRIDE_PUBLIC=true\n',
+  );
+  const started = Date.now();
+  docker(['build', '--label', BED_LABEL, '-t', image, context]);
+  const built = docker(['run', '--rm', '--entrypoint', BUILT_BEE, image, 'version']);
+  report(
+    `built Bee ${tag} at ${commit.slice(0, 8)} with REACHABILITY_OVERRIDE_PUBLIC=true in ${Date.now() - started} ms, ` +
+      `version ${`${built.stdout} ${built.stderr}`.trim()}`,
+  );
+  builtBeeImages.set(beeVersion, image);
+  return image;
+}
+
+/**
+ * fdp-play's own image for that role, with its Bee program swapped for the requested release: the published image of
+ * that release, or a binary built from source for a release in BEE_BUILDS.
+ */
+function beeImageFor(beeVersion, role, report) {
   const images = { queen: FDP_PLAY.queenImage, worker: FDP_PLAY.workerImage, third: FDP_PLAY.thirdImage };
   const fdpPlayImage = `${images[role]}:${FDP_PLAY.imageTag}`;
   if (beeVersion === FDP_PLAY.imageTag) return fdpPlayImage;
 
+  const [release, program] = BEE_BUILDS[beeVersion]
+    ? [builtBeeImage(beeVersion, report), BUILT_BEE]
+    : [`ethersphere/bee:${beeVersion}`, BEE_PROGRAM];
   const tag = `swarm-chat-bed-${role}:${beeVersion}`;
   const context = mkdtempSync(join(tmpdir(), 'swarm-chat-bed-'));
   writeFileSync(
     join(context, 'Dockerfile'),
-    `FROM ethersphere/bee:${beeVersion} AS release\n` +
-      `FROM ${fdpPlayImage}\n` +
-      `COPY --from=release ${BEE_PROGRAM} ${BEE_PROGRAM}\n`,
+    `FROM ${release} AS release\n` + `FROM ${fdpPlayImage}\n` + `COPY --from=release ${program} ${BEE_PROGRAM}\n`,
   );
   docker(['build', '--label', BED_LABEL, '-t', tag, context]);
   return tag;
@@ -160,10 +213,11 @@ export function removeLeftovers() {
  * and a bind mount would name a path on the daemon's filesystem rather than this container's.
  */
 export class Cluster {
-  constructor({ beeVersion, runId, log }) {
+  constructor({ beeVersion, runId, log, observe = log }) {
     this.beeVersion = beeVersion;
     this.runId = runId;
     this.log = log;
+    this.observe = observe;
     this.network = `bed-${runId}`;
     this.names = {
       chain: `bed-${runId}-chain`,
@@ -173,6 +227,12 @@ export class Cluster {
     };
     this.self = null;
   }
+
+  /** A line for both the log and the observations. */
+  report = (line) => {
+    this.log(line);
+    this.observe(line);
+  };
 
   url(role) {
     return `http://${this.names[role]}:${BEE_API_PORT}`;
@@ -213,16 +273,16 @@ export class Cluster {
 
     const options = FDP_PLAY.beeOptions(this.names.chain);
 
-    this.runBee('queen', beeImageFor(this.beeVersion, 'queen'), { ...options, 'bootnode-mode': 'false' });
+    this.runBee('queen', beeImageFor(this.beeVersion, 'queen', this.report), { ...options, 'bootnode-mode': 'false' });
     await this.waitHealthy('queen');
     const underlay = await this.underlayOf('queen');
-    this.runBee('worker', beeImageFor(this.beeVersion, 'worker'), { ...options, bootnode: underlay });
+    this.runBee('worker', beeImageFor(this.beeVersion, 'worker', this.report), { ...options, bootnode: underlay });
     await this.waitHealthy('worker');
     await this.waitPeered();
     // The third node joins once the other two have started. Bee 2.6's NewBee closes its warm-up detector on return,
     // which drops a peer event from during start-up, so a node whose only peer arrived then never warms up. The third
     // node's arrival is a peer event after start-up on both. It is also a second peer for each node's health service.
-    this.runBee('third', beeImageFor(this.beeVersion, 'third'), { ...options, bootnode: underlay });
+    this.runBee('third', beeImageFor(this.beeVersion, 'third', this.report), { ...options, bootnode: underlay });
     await this.waitHealthy('third');
     await waitFor(
       'the queen to see both other nodes',
