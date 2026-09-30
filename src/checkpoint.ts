@@ -5,20 +5,31 @@ import { Topic } from '@ethersphere/bee-js';
 import { historyLinkSchema, historyRowSchema } from '@solarpunkltd/swarm-chat-js/message';
 import { z } from 'zod';
 
-const checkpointSchema = z.strictObject({
-  v: z.literal(2),
+const recordedEntrySchema = z.strictObject({ index: z.number().int().nonnegative(), bytes: z.base64() });
+
+const checkpointFields = {
   topic: z.string(),
-  /** The last slot known to hold its entry, -1 before the first. */
+  /** The last slot confirmed in order, -1 before the first. Every slot up to it holds its entry. */
   index: z.number().int().min(-1),
-  /** The entry about to be written, recorded before the write so a restart resends exactly these bytes. */
-  pending: z.strictObject({ index: z.number().int().nonnegative(), bytes: z.base64() }).nullable(),
   history: historyLinkSchema.nullable(),
   /** The rows published after `history.toSeq`, which no saved history file holds yet. */
   rows: z.array(historyRowSchema),
-});
+};
+
+const checkpointSchema = z.union([
+  z.strictObject({
+    v: z.literal(3),
+    ...checkpointFields,
+    /** The entries in flight, one per slot from `index + 1` on, each recorded before its first write. */
+    pending: z.array(recordedEntrySchema),
+  }),
+  z
+    .strictObject({ v: z.literal(2), ...checkpointFields, pending: recordedEntrySchema.nullable() })
+    .transform((older) => ({ ...older, v: 3 as const, pending: older.pending ? [older.pending] : [] })),
+]);
 
 /** What survives a restart for one chat, so resuming it needs no read of the feed. */
-export type Checkpoint = z.infer<typeof checkpointSchema>;
+export type Checkpoint = z.output<typeof checkpointSchema>;
 
 export class CheckpointDamagedError extends Error {}
 
@@ -66,7 +77,7 @@ export class CheckpointStore {
     const temporary = `${path}.tmp`;
     const file = await open(temporary, 'w');
     try {
-      await file.writeFile(JSON.stringify({ v: 2, ...checkpoint }));
+      await file.writeFile(JSON.stringify({ v: 3, ...checkpoint }));
       await file.sync();
     } finally {
       await file.close();

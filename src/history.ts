@@ -5,6 +5,8 @@ import {
   MESSAGE_VERSION,
 } from '@solarpunkltd/swarm-chat-js/message';
 
+import { sleep } from './utils/sleep.js';
+
 /** A history file as the server uploads it, the shape the library's historyFileSchema reads. */
 export type UploadedHistoryFile = {
   v: typeof MESSAGE_VERSION;
@@ -59,6 +61,7 @@ export class HistoryBook {
   private newest: HistoryLink | null;
   private saving: Promise<void> | undefined;
   private dirty = false;
+  private lastUploadStartedAt = 0;
   private lastSaveErrorValue: string | null = null;
 
   constructor(
@@ -67,6 +70,8 @@ export class HistoryBook {
     private readonly saveWithRetries: (save: () => Promise<string>) => Promise<SaveOutcome>,
     private readonly onSaved: (link: HistoryLink) => void,
     private readonly limits: HistoryLimits = DEFAULT_HISTORY_LIMITS,
+    /** The least time between the starts of two uploads, so a busy chat saves once per interval, a quiet one at once. */
+    private readonly saveIntervalMs = 0,
   ) {
     this.current = emptyFile(0, null);
     this.newest = null;
@@ -156,6 +161,11 @@ export class HistoryBook {
 
   private async saveUntilClean(): Promise<void> {
     while (this.dirty) {
+      const wait = this.lastUploadStartedAt + this.saveIntervalMs - Date.now();
+      if (wait > 0) {
+        // Rows published while this waits ride the same upload.
+        await sleep(wait);
+      }
       this.dirty = false;
       const pending = this.closed[0] ?? this.current;
       if (pending.prev === undefined || pending.rows.length === 0) {
@@ -163,6 +173,7 @@ export class HistoryBook {
       }
       const file = this.snapshot(pending);
       if (pending.savedAs?.toSeq !== file.toSeq) {
+        this.lastUploadStartedAt = Date.now();
         const outcome = await this.saveWithRetries(() => this.store.upload(file));
         if (outcome.kind === 'failed') {
           this.lastSaveErrorValue = outcome.error;

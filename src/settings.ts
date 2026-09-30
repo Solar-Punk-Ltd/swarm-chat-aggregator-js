@@ -61,6 +61,7 @@ const environmentShape = z.object({
   RATE_PER_CHAT: count(600),
   RATE_PER_SENDER: count(30),
   QUEUE_LIMIT: count(500),
+  PUBLISH_WINDOW: count(8),
   RESUBSCRIBE_IDLE_MS: milliseconds(3 * MINUTE),
   HEARTBEAT_INTERVAL_MS: milliseconds(MINUTE),
   HEARTBEAT_STALE_MS: milliseconds(3 * MINUTE),
@@ -68,6 +69,11 @@ const environmentShape = z.object({
   REQUEST_TIMEOUT_MS: milliseconds(30 * SECOND),
   HISTORY_TIMEOUT_MS: milliseconds(3 * MINUTE),
   HISTORY_TRAIL_LIMIT: count(500),
+  HISTORY_SAVE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .default(5 * SECOND),
   RESUME_RETRY_MS: milliseconds(30 * SECOND),
   PUBLISH_ATTEMPTS: count(6),
   RETRY_BASE_MS: milliseconds(SECOND),
@@ -111,6 +117,7 @@ export type Settings = {
   rates: { windowMs: number; perChat: number; perSender: number };
   chatIdleEvictMs: number;
   queueLimit: number;
+  publishWindow: number;
   resubscribeIdleMs: number;
   heartbeatIntervalMs: number;
   heartbeatStaleMs: number;
@@ -118,6 +125,7 @@ export type Settings = {
   requestTimeoutMs: number;
   historyTimeoutMs: number;
   historyTrailLimit: number;
+  historySaveIntervalMs: number;
   resumeRetryMs: number;
   publishAttempts: number;
   retryBaseMs: number;
@@ -165,6 +173,7 @@ export function parseSettings(environment: Record<string, string | undefined>): 
     rates: { windowMs: env.RATE_WINDOW_MS, perChat: env.RATE_PER_CHAT, perSender: env.RATE_PER_SENDER },
     chatIdleEvictMs: env.CHAT_IDLE_EVICT_MS,
     queueLimit: env.QUEUE_LIMIT,
+    publishWindow: env.PUBLISH_WINDOW,
     resubscribeIdleMs: env.RESUBSCRIBE_IDLE_MS,
     heartbeatIntervalMs: env.HEARTBEAT_INTERVAL_MS,
     heartbeatStaleMs: env.HEARTBEAT_STALE_MS,
@@ -172,6 +181,7 @@ export function parseSettings(environment: Record<string, string | undefined>): 
     requestTimeoutMs: env.REQUEST_TIMEOUT_MS,
     historyTimeoutMs: env.HISTORY_TIMEOUT_MS,
     historyTrailLimit: env.HISTORY_TRAIL_LIMIT,
+    historySaveIntervalMs: env.HISTORY_SAVE_INTERVAL_MS,
     resumeRetryMs: env.RESUME_RETRY_MS,
     publishAttempts: env.PUBLISH_ATTEMPTS,
     retryBaseMs: env.RETRY_BASE_MS,
