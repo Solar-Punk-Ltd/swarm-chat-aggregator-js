@@ -5,6 +5,7 @@ import { Bee, FeedIndex, Topic } from '@ethersphere/bee-js';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { LockHeldError } from '../src/lock.js';
+import { feedSlotAddress } from './helpers/fakeBee.js';
 import { CHAT, Rig, message, waitFor } from './helpers/harness.js';
 
 let rig: Rig;
@@ -193,6 +194,88 @@ describe('a chat without a checkpoint', () => {
   });
 });
 
+describe('pipelined slots', () => {
+  const checkpointOf = async () =>
+    JSON.parse(await readFile(join(rig.checkpointDir, `${Topic.fromString(CHAT).toHex()}.json`), 'utf8')) as {
+      index: number;
+      pending: { index: number }[];
+    };
+
+  test('several slots are written at once, so a burst is not paced by one write at a time', async () => {
+    const server = await rig.startServer({ PUBLISH_WINDOW: '8' });
+    await rig.send(message({ text: 'opens the chat' }));
+    await waitFor(() => server.stats.published === 1, 5000, 'the chat open');
+    rig.writer.faults.socWriteDelayMs = 400;
+    const sentAt = Date.now();
+    for (let i = 0; i < 8; i++) {
+      await rig.send(message({ text: `burst ${i}` }));
+    }
+    await waitFor(() => server.stats.published === 9, 10_000, 'the burst');
+    expect(Date.now() - sentAt).toBeLessThan(4 * 400);
+    for (let i = 0; i < 8; i++) {
+      expect(rig.entry(i + 1)?.msg.text).toBe(`burst ${i}`);
+    }
+  });
+
+  test('a later slot that lands first is confirmed only once every slot before it has landed', async () => {
+    const server = await rig.startServer({ PUBLISH_WINDOW: '8' });
+    rig.writer.faults.slowWrites.set(feedSlotAddress(rig.feedOwner, Topic.fromString(CHAT), 0), 800);
+    await rig.send(message({ text: 'slow first' }));
+    await rig.send(message({ text: 'fast second' }));
+    await waitFor(() => rig.entry(1) !== undefined, 5000, 'slot 1 landing');
+    expect(rig.entry(0)).toBeUndefined();
+    expect(server.stats.published).toBe(0);
+    expect(await checkpointOf()).toMatchObject({ index: -1 });
+    expect((await checkpointOf()).pending.map((entry) => entry.index)).toEqual([0, 1]);
+
+    await waitFor(() => server.stats.published === 2, 5000, 'both confirmed');
+    await waitFor(async () => (await checkpointOf()).index === 1, 5000, 'the checkpoint caught up');
+    expect((await checkpointOf()).pending).toEqual([]);
+    expect(rig.entry(0)?.msg.text).toBe('slow first');
+  });
+
+  test('a restart after a crash with several slots pending sends each one its own bytes', async () => {
+    const server = await rig.startServer({ PUBLISH_WINDOW: '8', SHUTDOWN_DEADLINE_MS: '200' });
+    rig.writer.faults.writeFailures = 1_000_000;
+    const sent = [message({ text: 'pending 0' }), message({ text: 'pending 1' }), message({ text: 'pending 2' })];
+    for (const one of sent) {
+      await rig.send(one);
+    }
+    await waitFor(
+      async () => (await checkpointOf().catch(() => undefined))?.pending.length === 3,
+      5000,
+      'three pending',
+    );
+    await server.stop();
+
+    rig.writer.faults.writeFailures = 0;
+    const restarted = await rig.startServer({ PUBLISH_WINDOW: '8' });
+    await rig.send(message({ text: 'after the restart' }));
+    await waitFor(() => restarted.stats.published === 4, 5000, 'all four');
+    sent.forEach((one, i) => expect(rig.entry(i)?.msg).toEqual(one.message));
+    expect(rig.entry(3)?.msg.text).toBe('after the restart');
+  });
+
+  test('a pending list that does not run on from the last confirmed slot blocks the chat loudly', async () => {
+    const entry = { v: 7, seq: 2, at: 1, msg: message().message, history: null };
+    await writeFile(
+      join(rig.checkpointDir, `${Topic.fromString(CHAT).toHex()}.json`),
+      JSON.stringify({
+        v: 3,
+        topic: CHAT,
+        index: -1,
+        pending: [{ index: 2, bytes: Buffer.from(JSON.stringify(entry)).toString('base64') }],
+        history: null,
+        rows: [],
+      }),
+    );
+    const server = await publishOne();
+    await waitFor(() => server.healthReport().chats[0]?.state === 'blocked', 5000, 'blocked');
+    expect(server.healthReport().problems.join(' ')).toContain('checkpoint');
+    expect(rig.writer.socWrites).toBe(0);
+  });
+});
+
 describe('write-ahead checkpoint', () => {
   test('resuming from a checkpoint reads no slot beyond the check before the next write', async () => {
     await publish(3);
@@ -265,9 +348,9 @@ describe('write-ahead checkpoint', () => {
     await server.stop();
     const checkpoint = JSON.parse(
       await readFile(join(rig.checkpointDir, `${Topic.fromString(CHAT).toHex()}.json`), 'utf8'),
-    ) as { index: number; pending: unknown };
+    ) as { index: number; pending: unknown[] };
     expect(rig.entry(0)?.msg.text).toBe('in flight at the stop');
-    expect(checkpoint).toMatchObject({ index: 0, pending: null });
+    expect(checkpoint).toMatchObject({ index: 0, pending: [] });
   });
 
   test('a history save that finishes after the stop does not write the checkpoint', async () => {

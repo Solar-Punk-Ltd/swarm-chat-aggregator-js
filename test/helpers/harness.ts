@@ -102,6 +102,7 @@ export class Rig {
       LOCK_REFRESH_MS: '50',
       LOCK_STALE_MS: '400',
       MIN_CONNECTED_PEERS: '3',
+      HISTORY_SAVE_INTERVAL_MS: '0',
       CROSS_CHECK_TIMEOUT_MS: '500',
       CHECKPOINT_DIR: this.checkpointDir,
       HEALTH_PORT: '0',

@@ -72,6 +72,8 @@ type Faults = {
   dataUploadFailures: number;
   dataUploadDelayMs: number;
   socWriteDelayMs: number;
+  /** Extra delay for writes to one chunk address, so a later slot can land before an earlier one. */
+  slowWrites: Map<string, number>;
   /** Subscriptions stay open and silent, as behind a proxy that dropped the connection. */
   gsocDeaf: boolean;
   /** Requests to these paths never answer. */
@@ -94,6 +96,7 @@ export class FakeBeeNode {
     dataUploadFailures: 0,
     dataUploadDelayMs: 0,
     socWriteDelayMs: 0,
+    slowWrites: new Map(),
     gsocDeaf: false,
     hang: undefined,
     ready: true,
@@ -226,6 +229,7 @@ export class FakeBeeNode {
       }
       await delay(this.faults.socWriteDelayMs);
       const [, owner, identifier] = match;
+      await delay(this.faults.slowWrites.get(socAddress(identifier, owner)) ?? 0);
       const signature = url.searchParams.get('sig') ?? '';
       const address = socAddress(identifier, owner);
       this.swarm.chunks.set(

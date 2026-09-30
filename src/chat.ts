@@ -15,6 +15,7 @@ import type { Logger } from './libs/logger.js';
 import { DropReason, type Stats } from './stats.js';
 import { retryDelayMs } from './utils/backoff.js';
 import { RecentIds } from './utils/recentIds.js';
+import { type PublishTimingSummary, PublishTimings } from './utils/timings.js';
 import { sleep } from './utils/sleep.js';
 
 export const ChatState = {
@@ -30,6 +31,8 @@ export type ChatState = (typeof ChatState)[keyof typeof ChatState];
 
 export type ChatTimings = {
   queueLimit: number;
+  /** How many slots may be in flight at once, each with its own entry. */
+  publishWindow: number;
   publishAttempts: number;
   retryBaseMs: number;
   resumeRetryMs: number;
@@ -43,6 +46,7 @@ export type ChatHealth = {
   state: ChatState;
   nextSeq: number | null;
   queued: number;
+  inFlight: number;
   lastPublishAt: number | null;
   lastError: string | null;
   failing: boolean;
@@ -60,7 +64,21 @@ export type ChatHealth = {
 type Queued = { msg: ChatMessage; at: number };
 
 /** The one entry allowed into slot `index`, recorded in the checkpoint before it is written. */
-type PendingEntry = { index: number; bytes: Uint8Array; row: HistoryRow; persisted: boolean };
+type PendingEntry = {
+  index: number;
+  bytes: Uint8Array;
+  row: HistoryRow;
+  persisted: boolean;
+  /** The entry is in its slot, and waits only for every slot before it to land too. */
+  landed: boolean;
+  stallSince: number | null;
+  attempts: number;
+  spent: StageTimes;
+};
+
+type StageTimes = { preWriteReadMs: number; checkpointWriteMs: number; feedWriteMs: number };
+
+const noTimeSpent = (): StageTimes => ({ preWriteReadMs: 0, checkpointWriteMs: 0, feedWriteMs: 0 });
 
 class ResumeError extends Error {}
 
@@ -78,10 +96,13 @@ export function messageKey(message: ChatMessage): string {
  */
 export class ChatPublisher {
   private stateValue: ChatState = ChatState.Resuming;
+  /** The last slot confirmed in order. Every slot up to it holds its entry. */
+  private confirmedIndex = -1;
+  /** The slot the next staged entry goes to. */
   private nextIndex = -1;
-  private pending: PendingEntry | undefined;
-  private stallSince: number | null = null;
-  private stallAttempts = 0;
+  /** Entries in flight, by slot, in slot order. */
+  private readonly pending = new Map<number, PendingEntry>();
+  private readonly deliveries = new Set<Promise<void>>();
   private readonly queue: Queued[] = [];
   private readonly queuedIds = new Set<string>();
   private readonly publishedIds = new RecentIds(RECENT_ID_LIMIT);
@@ -89,6 +110,7 @@ export class ChatPublisher {
   private lastActivityAt = Date.now();
   private startedWithoutCheckpoint = false;
   private historyDownloadFailures = 0;
+  private readonly publishTimings = new PublishTimings();
   private historyLost: HistoryLink | null = null;
   private lastError: string | null = null;
   private failing = false;
@@ -138,7 +160,7 @@ export class ChatPublisher {
    */
   idleSince(): number | undefined {
     const settled = this.stateValue === ChatState.Ready || this.stateValue === ChatState.Blocked;
-    const busy = this.queue.length > 0 || this.pending !== undefined || this.history.isSaving;
+    const busy = this.queue.length > 0 || this.pending.size > 0 || this.history.isSaving;
     return settled && !busy ? this.lastActivityAt : undefined;
   }
 
@@ -181,8 +203,9 @@ export class ChatPublisher {
       this.logger.warn(`[chat ${this.topic}] drain deadline passed with ${this.queue.length} messages unpublished`);
     }
     this.stop();
-    // A write already sent can still land, so the lock is not released until the loop has seen the stop.
+    // A write already sent can still land, so the lock is not released until every delivery has seen the stop.
     await this.loop;
+    await Promise.all([...this.deliveries]);
     await this.checkpointWrites;
   }
 
@@ -193,9 +216,12 @@ export class ChatPublisher {
       this.stateValue = ChatState.Stopped;
     }
     this.signalStop();
-    if (this.pending && !this.pending.persisted) {
-      this.stats.drop(DropReason.Shutdown);
-      this.logger.warn(`[chat ${this.topic}] dropped at shutdown`, deadLetterLine(this.pending.row.msg));
+    for (const entry of this.pending.values()) {
+      if (!entry.persisted) {
+        this.pending.delete(entry.index);
+        this.stats.drop(DropReason.Shutdown);
+        this.logger.warn(`[chat ${this.topic}] dropped at shutdown`, deadLetterLine(entry.row.msg));
+      }
     }
     for (const queued of this.queue.splice(0)) {
       this.stats.drop(DropReason.Shutdown);
@@ -206,20 +232,22 @@ export class ChatPublisher {
   }
 
   health(now = Date.now()): ChatHealth {
+    const holding = [...this.pending.values()].find((entry) => !entry.landed && entry.stallSince !== null);
     return {
       topic: this.topic,
       state: this.stateValue,
       nextSeq: this.nextIndex >= 0 ? this.nextIndex : null,
       queued: this.queue.length,
+      inFlight: this.pending.size,
       lastPublishAt: this.lastPublishAt,
       lastError: this.lastError,
       failing: this.failing,
       stall:
-        this.pending && this.stallSince !== null
+        holding && holding.stallSince !== null
           ? {
-              slot: this.pending.index,
-              stuckSeconds: Math.round((now - this.stallSince) / 1000),
-              attempts: this.stallAttempts,
+              slot: holding.index,
+              stuckSeconds: Math.round((now - holding.stallSince) / 1000),
+              attempts: holding.attempts,
             }
           : null,
       startedWithoutCheckpoint: this.startedWithoutCheckpoint,
@@ -249,25 +277,49 @@ export class ChatPublisher {
       if (this.stateValue !== ChatState.Ready) {
         return;
       }
-      if (this.pending) {
-        await this.deliverPending();
+      const staged = this.stageFromQueue();
+      if (staged.length > 0) {
+        if (await this.persist(staged)) {
+          staged.forEach((entry) => this.launch(entry));
+        }
         continue;
       }
+      if (this.pending.size === 0 && this.queue.length === 0 && this.draining) {
+        return;
+      }
+      await this.pause();
+    }
+  }
+
+  /** Takes queued messages into the free places of the window, each with the next slot, in order. */
+  private stageFromQueue(): PendingEntry[] {
+    const staged: PendingEntry[] = [];
+    while (this.pending.size < this.timings.publishWindow) {
       const queued = this.queue.shift();
       if (!queued) {
-        if (this.draining) {
-          return;
-        }
-        await this.pause();
-        continue;
+        break;
       }
       if (this.publishedIds.has(messageKey(queued.msg))) {
         this.queuedIds.delete(messageKey(queued.msg));
         this.stats.drop(DropReason.Duplicate);
         continue;
       }
-      await this.stage(queued);
+      const row: HistoryRow = { seq: this.nextIndex, at: queued.at, msg: queued.msg };
+      const entry: PendingEntry = {
+        index: this.nextIndex,
+        bytes: encodeFeedEntry(makeFeedEntry(row, this.history.newestLink)),
+        row,
+        persisted: false,
+        landed: false,
+        stallSince: null,
+        attempts: 0,
+        spent: noTimeSpent(),
+      };
+      this.pending.set(entry.index, entry);
+      this.nextIndex += 1;
+      staged.push(entry);
     }
+    return staged;
   }
 
   /** A retry's wait, cut short by a stop so shutdown never waits out a backoff. */
@@ -322,18 +374,28 @@ export class ChatPublisher {
     if (!consecutive || firstRow + checkpoint.rows.length !== checkpoint.index + 1) {
       throw new CheckpointDamagedError(`its rows do not run from ${firstRow} to slot ${checkpoint.index}`);
     }
-    let pending: PendingEntry | undefined;
-    if (checkpoint.pending) {
-      const bytes = Buffer.from(checkpoint.pending.bytes, 'base64');
-      const entry = parseFeedEntry(bytes, checkpoint.pending.index, this.topic);
-      if (checkpoint.pending.index !== checkpoint.index + 1 || !entry.ok) {
-        throw new CheckpointDamagedError(`its pending entry is not the entry for slot ${checkpoint.index + 1}`);
+    const pending = checkpoint.pending.map((recorded, i): PendingEntry => {
+      const bytes = Buffer.from(recorded.bytes, 'base64');
+      const entry = parseFeedEntry(bytes, recorded.index, this.topic);
+      if (recorded.index !== checkpoint.index + 1 + i || !entry.ok) {
+        throw new CheckpointDamagedError(
+          `its pending entries do not run on from slot ${checkpoint.index + 1} with an entry for each slot`,
+        );
       }
-      pending = { index: checkpoint.pending.index, bytes, row: rowOf(entry.value), persisted: true };
-    }
+      return {
+        index: recorded.index,
+        bytes,
+        row: rowOf(entry.value),
+        persisted: true,
+        landed: false,
+        stallSince: null,
+        attempts: 0,
+        spent: noTimeSpent(),
+      };
+    });
 
     this.history.restore(await this.historyStart(checkpoint.history), checkpoint.rows);
-    this.enterReady(checkpoint.index + 1, pending);
+    this.enterReady(checkpoint.index, pending);
     if (checkpoint.rows.length > 0) {
       void this.history.requestSave();
     }
@@ -369,23 +431,26 @@ export class ChatPublisher {
       later.push(rowOf(entry));
     }
     this.history.restore(start, later);
-    this.enterReady(head + 1, undefined);
+    this.enterReady(head, []);
     await this.writeCheckpoint();
     if (later.length > 0) {
       void this.history.requestSave();
     }
   }
 
-  private enterReady(nextIndex: number, pending: PendingEntry | undefined): void {
+  /** Continues after `confirmedIndex` with the recorded entries in flight, each resent with its own bytes. */
+  private enterReady(confirmedIndex: number, pending: PendingEntry[]): void {
     for (const row of this.history.rows) {
       this.publishedIds.add(messageKey(row.msg));
     }
-    this.nextIndex = nextIndex;
-    this.pending = pending;
-    if (pending) {
-      this.queuedIds.add(messageKey(pending.row.msg));
-    }
+    this.confirmedIndex = confirmedIndex;
+    this.nextIndex = confirmedIndex + 1 + pending.length;
     this.stateValue = ChatState.Ready;
+    for (const entry of pending) {
+      this.pending.set(entry.index, entry);
+      this.queuedIds.add(messageKey(entry.row.msg));
+      this.launch(entry);
+    }
   }
 
   private async readEntry(index: number, what: string): Promise<FeedEntry> {
@@ -447,105 +512,143 @@ export class ChatPublisher {
     return { kind: 'saved', link, file };
   }
 
-  /** Makes the next message the pending entry and records it before any write, retrying the record until it holds. */
-  private async stage(queued: Queued): Promise<void> {
-    const row: HistoryRow = { seq: this.nextIndex, at: queued.at, msg: queued.msg };
-    const bytes = encodeFeedEntry(makeFeedEntry(row, this.history.newestLink));
-    this.pending = { index: this.nextIndex, bytes, row, persisted: false };
+  /** Records newly staged entries in the checkpoint before any of them is written, retrying until the record holds. */
+  private async persist(staged: PendingEntry[]): Promise<boolean> {
     for (let attempt = 0; !this.stopped; attempt++) {
-      if (await this.writeCheckpoint()) {
-        this.pending.persisted = true;
-        return;
+      const startedAt = performance.now();
+      const written = await this.writeCheckpoint();
+      const spentMs = performance.now() - startedAt;
+      staged.forEach((entry) => (entry.spent.checkpointWriteMs += spentMs));
+      if (written) {
+        staged.forEach((entry) => (entry.persisted = true));
+        return true;
       }
       this.failing = true;
-      this.lastError = `checkpoint write failed before slot ${row.seq}`;
+      this.lastError = `checkpoint write failed before slot ${staged[0]?.index}`;
       await this.sleepUnlessStopped(retryDelayMs(attempt, this.timings.retryBaseMs));
     }
+    return false;
+  }
+
+  private launch(entry: PendingEntry): void {
+    const delivery = this.deliver(entry).finally(() => this.deliveries.delete(delivery));
+    this.deliveries.add(delivery);
   }
 
   /**
-   * Writes the pending entry, resending the same bytes until one write succeeds, for as long as it takes. Reads the
-   * slot first: our own bytes there mean an earlier attempt landed, anything else means the slot is taken.
+   * Writes one entry, resending the same bytes until one write succeeds, for as long as it takes. Reads the slot
+   * first: our own bytes there mean an earlier attempt landed, anything else means the slot is taken.
    */
-  private async deliverPending(): Promise<void> {
-    const pending = this.pending;
-    if (!pending) {
-      return;
-    }
-    this.stallSince ??= Date.now();
+  private async deliver(entry: PendingEntry): Promise<void> {
+    entry.stallSince ??= Date.now();
     let checked = false;
-    for (let attempt = 0; !this.stopped; attempt++) {
+    for (let attempt = 0; this.stillDelivering(entry); attempt++) {
       if (attempt > 0) {
         await this.sleepUnlessStopped(retryDelayMs(attempt - 1, this.timings.retryBaseMs));
         if (this.stopped) {
           return;
         }
       }
-      this.stallAttempts += 1;
-      const outcome = checked ? undefined : await this.checkSlot(pending);
-      if (outcome === 'blocked') {
+      entry.attempts += 1;
+      const readStartedAt = performance.now();
+      const outcome = checked ? undefined : await this.checkSlot(entry);
+      entry.spent.preWriteReadMs += performance.now() - readStartedAt;
+      if (outcome === 'blocked' || !this.stillDelivering(entry)) {
         return;
       }
       if (outcome === 'landed') {
-        await this.confirm(pending);
+        await this.landed(entry);
         return;
       }
       if (outcome !== 'failed') {
         checked = true;
-        const write = await this.feed.writeSlot(pending.index, pending.bytes);
+        const writeStartedAt = performance.now();
+        const write = await this.feed.writeSlot(entry.index, entry.bytes);
+        entry.spent.feedWriteMs += performance.now() - writeStartedAt;
         if (write.kind === 'written') {
-          await this.confirm(pending);
+          await this.landed(entry);
           return;
         }
-        this.lastError = `slot ${pending.index}: ${write.error}`;
+        this.lastError = `slot ${entry.index}: ${write.error}`;
       }
-      if (this.stallAttempts % this.timings.publishAttempts === 0) {
+      if (entry.attempts % this.timings.publishAttempts === 0) {
         this.failing = true;
         this.logger.warn(
-          `[chat ${this.topic}] slot ${pending.index} still unwritten after ${this.stallAttempts} attempts`,
+          `[chat ${this.topic}] slot ${entry.index} still unwritten after ${entry.attempts} attempts`,
           this.lastError,
         );
       }
     }
   }
 
+  private stillDelivering(entry: PendingEntry): boolean {
+    return !this.stopped && this.pending.get(entry.index) === entry;
+  }
+
   /** What the slot holds before its first write. Undefined means empty, so the write goes ahead. */
-  private async checkSlot(pending: PendingEntry): Promise<'landed' | 'blocked' | 'failed' | undefined> {
-    const read = await this.feed.readSlotOnce(pending.index);
+  private async checkSlot(entry: PendingEntry): Promise<'landed' | 'blocked' | 'failed' | undefined> {
+    const read = await this.feed.readSlotOnce(entry.index);
     switch (read.kind) {
       case 'empty':
         return undefined;
       case 'failed':
-        this.lastError = `read before writing slot ${pending.index}: ${read.error}`;
+        this.lastError = `read before writing slot ${entry.index}: ${read.error}`;
         return 'failed';
       case 'unreadable':
-        this.block(`slot ${pending.index} holds a chunk that is not an update of this feed: ${read.error}`);
+        this.block(`slot ${entry.index} holds a chunk that is not an update of this feed: ${read.error}`);
         return 'blocked';
       case 'found':
-        if (sameBytes(read.payload, pending.bytes)) {
+        if (sameBytes(read.payload, entry.bytes)) {
           return 'landed';
         }
-        this.block(`slot ${pending.index} already holds an entry this server did not write, another writer`);
+        this.block(`slot ${entry.index} already holds an entry this server did not write, another writer`);
         return 'blocked';
     }
   }
 
-  private async confirm(pending: PendingEntry): Promise<void> {
-    const row = pending.row;
-    this.pending = undefined;
-    this.stallSince = null;
-    this.stallAttempts = 0;
-    this.nextIndex = row.seq + 1;
-    this.publishedIds.add(messageKey(row.msg));
-    this.queuedIds.delete(messageKey(row.msg));
-    this.history.append(row);
-    this.stats.published += 1;
+  /**
+   * Marks an entry as in its slot, then confirms every landed entry that follows the last confirmed slot, in slot
+   * order, so the checkpoint's confirmed slot only ever moves forward over slots that all hold their entries.
+   */
+  private async landed(entry: PendingEntry): Promise<void> {
+    entry.landed = true;
+    const confirmed: PendingEntry[] = [];
+    for (
+      let next = this.pending.get(this.confirmedIndex + 1);
+      next?.landed;
+      next = this.pending.get(this.confirmedIndex + 1)
+    ) {
+      this.pending.delete(next.index);
+      this.confirmedIndex = next.index;
+      this.publishedIds.add(messageKey(next.row.msg));
+      this.queuedIds.delete(messageKey(next.row.msg));
+      this.history.append(next.row);
+      this.stats.published += 1;
+      confirmed.push(next);
+    }
+    if (confirmed.length === 0) {
+      return;
+    }
     this.lastPublishAt = Date.now();
     this.lastActivityAt = this.lastPublishAt;
-    this.lastError = null;
-    this.failing = false;
+    this.failing = [...this.pending.values()].some((waiting) => waiting.attempts >= this.timings.publishAttempts);
+    if (!this.failing) {
+      this.lastError = null;
+    }
+    const startedAt = performance.now();
     await this.writeCheckpoint();
+    const spentMs = performance.now() - startedAt;
+    for (const done of confirmed) {
+      done.spent.checkpointWriteMs += spentMs;
+      this.publishTimings.record({ ...done.spent, receivedToWrittenMs: Math.max(0, Date.now() - done.row.at) });
+    }
     void this.history.requestSave();
+    this.wake?.();
+  }
+
+  /** How long recent publishes spent in each stage, for /health's observations. */
+  publishTimingSummary(): PublishTimingSummary | null {
+    return this.publishTimings.summary();
   }
 
   /**
@@ -558,10 +661,11 @@ export class ChatPublisher {
       try {
         await this.checkpoints.write({
           topic: this.topic,
-          index: this.nextIndex - 1,
-          pending: this.pending
-            ? { index: this.pending.index, bytes: Buffer.from(this.pending.bytes).toString('base64') }
-            : null,
+          index: this.confirmedIndex,
+          pending: [...this.pending.values()].map((entry) => ({
+            index: entry.index,
+            bytes: Buffer.from(entry.bytes).toString('base64'),
+          })),
           history: link,
           rows: this.history.rowsAfter(link?.toSeq ?? -1),
         });
@@ -586,10 +690,11 @@ export class ChatPublisher {
       this.stats.drop(DropReason.ChatBlocked);
       this.logger.warn(`[chat ${this.topic}] dropped, chat blocked`, deadLetterLine(queued.msg));
     }
-    if (this.pending) {
+    for (const entry of this.pending.values()) {
       this.stats.drop(DropReason.ChatBlocked);
-      this.pending = undefined;
+      this.logger.warn(`[chat ${this.topic}] dropped, chat blocked`, deadLetterLine(entry.row.msg));
     }
+    this.pending.clear();
     this.queuedIds.clear();
   }
 }

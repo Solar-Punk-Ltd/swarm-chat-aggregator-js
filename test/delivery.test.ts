@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { Rig, message, waitFor } from './helpers/harness.js';
+import { CHAT as CHAT_TOPIC, Rig, message, waitFor } from './helpers/harness.js';
 
 let rig: Rig;
 
@@ -27,7 +27,8 @@ describe('retries', () => {
   });
 
   test('a write that keeps failing stalls its slot and the queue behind it, and never gives the slot away', async () => {
-    const server = await rig.startServer();
+    // One slot in flight, so the second message waits in the queue behind the stuck one.
+    const server = await rig.startServer({ PUBLISH_WINDOW: '1' });
     rig.writer.faults.writeFailures = 1_000_000;
     await rig.send(message({ text: 'stuck' }));
     await rig.send(message({ text: 'behind it' }));
@@ -56,7 +57,7 @@ describe('retries', () => {
   });
 
   test('messages dropped past the queue limit are logged as dead letters with their ids', async () => {
-    const server = await rig.startServer({ QUEUE_LIMIT: '1' });
+    const server = await rig.startServer({ QUEUE_LIMIT: '1', PUBLISH_WINDOW: '1' });
     rig.writer.faults.writeFailures = 1_000_000;
     const first = message({ text: 'stuck' });
     const second = message({ text: 'queued' });
@@ -101,6 +102,30 @@ describe('retries', () => {
   });
 });
 
+describe('observations', () => {
+  test('/health reports how long each stage of a publish took, as observations', async () => {
+    const server = await rig.startServer();
+    rig.writer.faults.socWriteDelayMs = 100;
+    for (let i = 0; i < 3; i++) {
+      await rig.send(message({ text: `timed ${i}` }));
+    }
+    await waitFor(
+      () => server.healthReport().observations.publishTimings[0]?.samples === 3,
+      5000,
+      'three timed publishes',
+    );
+    const timings = server.healthReport().observations.publishTimings[0];
+    expect(timings?.topic).toBe(CHAT_TOPIC);
+    expect(timings?.samples).toBe(3);
+    expect(timings?.feedWriteMs.p50).toBeGreaterThanOrEqual(100);
+    for (const stage of [timings?.preWriteReadMs, timings?.checkpointWriteMs, timings?.receivedToWrittenMs]) {
+      expect(stage?.p50).toBeGreaterThanOrEqual(0);
+      expect(stage?.max).toBeGreaterThanOrEqual(stage?.p90 ?? Infinity);
+    }
+    expect(timings?.receivedToWrittenMs.max).toBeGreaterThanOrEqual(timings?.feedWriteMs.max ?? Infinity);
+  });
+});
+
 describe('history', () => {
   test('a history upload slower than a single request is given its own timeout', async () => {
     const server = await rig.startServer({ REQUEST_TIMEOUT_MS: '200', HISTORY_TIMEOUT_MS: '3000' });
@@ -128,6 +153,23 @@ describe('history', () => {
     await rig.send(message({ text: 'saved at last' }));
     await waitFor(() => server.healthReport().chats[0]?.historyTrail === 0, 5000, 'the trail cleared');
     expect(server.healthReport().healthy).toBe(true);
+  });
+
+  test('a busy chat saves its history at most once per interval, and a quiet one at once', async () => {
+    const server = await rig.startServer({ HISTORY_SAVE_INTERVAL_MS: '1000' });
+    for (let i = 0; i < 10; i++) {
+      await rig.send(message({ text: `steady ${i}` }));
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    await waitFor(() => server.healthReport().chats[0]?.history?.toSeq === 9, 5000, 'history of all ten');
+    expect(bytesUploads()).toBeLessThanOrEqual(3);
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const before = bytesUploads();
+    const sentAt = Date.now();
+    await rig.send(message({ text: 'after a quiet spell' }));
+    await waitFor(() => bytesUploads() === before + 1, 5000, 'the save after a quiet spell');
+    expect(Date.now() - sentAt).toBeLessThan(500);
   });
 
   test('a burst of messages costs at most two saves', async () => {
@@ -183,7 +225,7 @@ describe('shutdown', () => {
   });
 
   test('drops what is still queued at the deadline and counts it', async () => {
-    const server = await rig.startServer({ SHUTDOWN_DEADLINE_MS: '150' });
+    const server = await rig.startServer({ SHUTDOWN_DEADLINE_MS: '150', PUBLISH_WINDOW: '1' });
     rig.writer.faults.socWriteDelayMs = 400;
     for (let i = 0; i < 3; i++) {
       await rig.send(message({ text: `late ${i}` }));
