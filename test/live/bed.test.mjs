@@ -55,6 +55,15 @@ describe('FeedLedger', () => {
     assert.equal(ledger.nextIndex, 3);
   });
 
+  it('says when the last of a set of messages first appeared, and null while one is missing', () => {
+    const ledger = new FeedLedger();
+    ledger.record(0, 'a', 1000);
+    ledger.record(1, 'b', 3000);
+    ledger.record(0, 'a', 9000);
+    assert.equal(ledger.lastAppearedAt(['a', 'b']), 3000);
+    assert.equal(ledger.lastAppearedAt(['a', 'b', 'c']), null);
+  });
+
   it('names what is missing, duplicated, overwritten and foreign', () => {
     const ledger = new FeedLedger();
     ledger.record(0, 'a');
