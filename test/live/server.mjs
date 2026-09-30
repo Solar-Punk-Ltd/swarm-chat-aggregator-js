@@ -47,8 +47,8 @@ const ENVIRONMENT = {
     HEARTBEAT_STALE_MS: '10000',
     RESUBSCRIBE_IDLE_MS: '15000',
     LOCK_STALE_MS: '15000',
-    // Two nodes give each one connected peer, and the server starts a chat without a checkpoint only once it
-    // counts this many.
+    // The server starts a chat without a checkpoint only once it counts this many connected peers. Each node of the
+    // bed's three-node cluster has two, so one is met as soon as the listener is peered at all.
     MIN_CONNECTED_PEERS: '1',
     // Empty on every run and kept across B2's restart, since the server refuses a folder of an older checkpoint
     // format as damaged.
