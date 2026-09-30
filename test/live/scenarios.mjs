@@ -112,15 +112,22 @@ class Chat {
     const verdict = this.follower.ledger.verdict(this.expectedIds);
     const failedSends = this.outcomes.filter((o) => o === SendOutcome.FAILED).length;
     const writes = this.senders.reduce((sum, s) => sum + s.writes, 0);
+    for (const sender of this.senders) {
+      for (const line of sender.writeErrors ?? []) this.refusals.set(line, (this.refusals.get(line) ?? 0) + 1);
+    }
+    const messages = this.expectedIds.length;
+    const serverErrors = [...this.refusals].reduce(
+      (sum, [line, count]) => sum + (line.startsWith('500 ') ? count : 0),
+      0,
+    );
+    const resendsPerMessage = messages ? ((writes - messages) / messages).toFixed(2) : '0';
     this.ctx.observe(
-      `${this.topic}: ${this.expectedIds.length} messages, ${writes} GSOC writes, ${this.follower.ledger.slots.size} feed slots`,
+      `${this.topic}: ${messages} messages, ${writes} GSOC writes, ${resendsPerMessage} resends per message, ` +
+        `${serverErrors} answered 500, ${this.follower.ledger.slots.size} feed slots`,
     );
     const problems = [];
     if (!isClean(verdict)) problems.push(describeVerdict(verdict));
     if (failedSends) problems.push(`${failedSends} sends gave up unconfirmed`);
-    for (const sender of this.senders) {
-      for (const line of sender.writeErrors ?? []) this.refusals.set(line, (this.refusals.get(line) ?? 0) + 1);
-    }
     for (const [line, count] of this.refusals) problems.push(`${count} writes refused by the node: ${line}`);
     return { passed: problems.length === 0, detail: problems.join('; ') || describeVerdict(verdict), verdict };
   }
