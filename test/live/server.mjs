@@ -103,6 +103,18 @@ export class ServerProcess {
     this.log(`server (${this.kind}) started, pid ${this.child.pid}`);
   }
 
+  /** The server's /health body, whatever its status, or null when it answers something other than JSON. */
+  async health() {
+    try {
+      const response = await fetch(`http://127.0.0.1:${this.settings.port}/health`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      return JSON.parse(await response.text());
+    } catch {
+      return null;
+    }
+  }
+
   /** A graceful stop by default, as a deploy does it. */
   async stop(signal = 'SIGTERM') {
     if (!this.child || this.child.exitCode !== null) return;
