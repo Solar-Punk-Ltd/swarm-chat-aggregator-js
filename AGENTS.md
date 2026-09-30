@@ -29,9 +29,10 @@ message format is made in the library first.
   `READ_RECHECK_MS` apart answer 404 or 500. The read before an ordinary write is one read.
 - Never resume a chat from Bee's head lookup alone, and never start a chat at slot 0 unless the lookup
   and two reads of slot 0 all say it is empty. The checkpoint is the primary record.
-- The checkpoint is written before its slot, recording the entry about to be written, and it is the only entry
-  ever written to that slot. A write that keeps failing stalls the chat, never frees its slot for another
-  message. Resuming from a checkpoint reads nothing from the feed.
+- The checkpoint records every entry in flight before its slot is first written, and each is the only entry
+  ever written to its slot. Slots are confirmed strictly in slot order. A write that keeps failing stalls its
+  slot, never frees it for another message. Resuming from a checkpoint resends every entry in flight with its
+  own bytes and reads nothing else from the feed.
 - A retry resends the identical entry bytes, never a rebuilt entry.
 - Never send a GSOC or feed write deferred.
 - Every Bee request carries its own timeout signal, because bee-js sets none.

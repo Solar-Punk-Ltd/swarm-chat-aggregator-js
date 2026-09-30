@@ -254,6 +254,7 @@ export class AggregatorServer {
       this.checkpoints,
       {
         queueLimit: settings.queueLimit,
+        publishWindow: settings.publishWindow,
         publishAttempts: settings.publishAttempts,
         retryBaseMs: settings.retryBaseMs,
         resumeRetryMs: settings.resumeRetryMs,
