@@ -163,6 +163,47 @@ async function runControls(cluster, beeVersion, workerStamp, queenStamp, key) {
   );
 }
 
+const BUCKET_PROBE_DEPTH = 17;
+const BUCKET_PROBE_WRITES = 5;
+
+/**
+ * Writes BUCKET_PROBE_WRITES different payloads to one GSOC address through the worker, once with an immutable batch
+ * and once with a mutable one, both at the smallest depth, and records each answer. A GSOC address is one chunk
+ * address, so every write lands in one stamp bucket, which holds 2^(depth - 16) stamps: 2 here. Nothing is asserted.
+ */
+async function bucketProbe(cluster, beeVersion) {
+  const listener = new Bee(cluster.url('queen'));
+  const sender = new Bee(cluster.url('worker'));
+  const { overlay } = await httpJson(`${cluster.url('queen')}/addresses`);
+  const identifier = Identifier.fromString(`bed-bucket-${cluster.runId}`);
+  const key = listener.messaging.gsocMine(overlay, identifier);
+  for (const immutable of [true, false]) {
+    const stamp = await cluster.buyStamp({ depth: BUCKET_PROBE_DEPTH, immutable });
+    const answers = [];
+    for (let write = 1; write <= BUCKET_PROBE_WRITES; write++) {
+      answers.push(
+        `${write}: ${await answerOf(async () => {
+          const result = await sender.messaging.gsocSend(
+            stamp,
+            key,
+            identifier,
+            `bucket ${immutable} ${write}`,
+            undefined,
+            {
+              signal: AbortSignal.timeout(30_000),
+            },
+          );
+          return { status: 'answered', text: result.reference.toHex().slice(0, 8) };
+        })}`,
+      );
+    }
+    observations.push(
+      `Bee ${beeVersion} one GSOC address, ${BUCKET_PROBE_WRITES} different payloads, depth ${BUCKET_PROBE_DEPTH} ` +
+        `${immutable ? 'immutable' : 'mutable'} batch: ${answers.join('; ')}`,
+    );
+  }
+}
+
 async function gsocRoundTrip(cluster, beeVersion, batchId, queenStamp) {
   const listener = new Bee(cluster.url('queen'));
   const sender = new Bee(cluster.url('worker'));
@@ -262,6 +303,7 @@ async function spike(beeVersion) {
     const batchId = await timed(`${beeVersion} stamp usable`, () => cluster.buyStamp());
     const queenStamp = await timed(`${beeVersion} queen stamp usable`, () => cluster.buyStamp({ role: 'queen' }));
     await gsocRoundTrip(cluster, beeVersion, batchId, queenStamp);
+    await bucketProbe(cluster, beeVersion);
     log(`PASS Bee ${beeVersion}: started on fdp-play's chain, bought a stamp, delivered a GSOC message`);
     return true;
   } catch (error) {

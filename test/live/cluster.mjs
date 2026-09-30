@@ -373,12 +373,16 @@ export class Cluster {
    * A stamp bought on one node, the worker unless named, sized from the chain's current price to last `days`, once it
    * is usable. Only the node that bought a stamp can stamp with it, since its issuer state lives there.
    */
-  async buyStamp({ role = 'worker', depth = 20, days = 7 } = {}) {
+  async buyStamp({ role = 'worker', depth = 20, days = 7, immutable = true } = {}) {
     const url = this.url(role);
     const { currentPrice } = await httpJson(`${url}/chainstate`);
     const amount = BigInt(currentPrice) * BigInt((days * 86_400) / BLOCK_SECONDS) + 1n;
-    this.log(`stamp: price ${currentPrice} per block, amount ${amount}, depth ${depth}`);
-    const { batchID } = await httpJson(`${url}/stamps/${amount}/${depth}`, { method: 'POST', timeoutMs: 180_000 });
+    this.log(`stamp: price ${currentPrice} per block, amount ${amount}, depth ${depth}, immutable ${immutable}`);
+    const { batchID } = await httpJson(`${url}/stamps/${amount}/${depth}`, {
+      method: 'POST',
+      headers: { immutable: String(immutable) },
+      timeoutMs: 180_000,
+    });
     await waitFor('the stamp to become usable', async () => (await httpJson(`${url}/stamps/${batchID}`)).usable, {
       timeoutMs: 300_000,
     });

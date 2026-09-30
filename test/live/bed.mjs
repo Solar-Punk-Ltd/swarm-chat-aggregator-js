@@ -55,7 +55,11 @@ log(`expected to fail: ${expectedFailures.size ? [...expectedFailures].join(', '
 removeLeftovers();
 try {
   await cluster.start();
-  const senderStamp = await cluster.buyStamp();
+  // Every message goes to one GSOC address, so every write lands in one stamp bucket. An immutable batch refuses a
+  // bucket's write past 2^(depth - 16) with "chunk write error", and a mutable one reuses its oldest slot, so the
+  // stamps writing there repeatedly, the senders' and the heartbeat's, are mutable, as a chat gateway's must be.
+  const senderStamp = await cluster.buyStamp({ immutable: false });
+  const heartbeatStamp = await cluster.buyStamp({ immutable: false });
   const serverStamp = await cluster.buyStamp();
 
   const gsocIdentifier = `bed-chat-${runId}`;
@@ -73,7 +77,7 @@ try {
       gsocIdentifier,
       feedKey: feedKey.toHex(),
       writeStamp: serverStamp,
-      heartbeatStamp: serverStamp,
+      heartbeatStamp,
       chatTopicPattern: 'chat-bed-.*',
       port: 3000 + (parseInt(runId.slice(0, 4), 16) % 1000),
     },
