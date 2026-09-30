@@ -170,6 +170,10 @@ Seven settings replace variables of the 6.x server, which are no longer read:
 - `GSOC_IDENTIFIER` replaces `GSOC_TOPIC`.
 - `HEALTH_PORT` replaces `PORT`.
 
+A known limit, accepted by the owner: if a chat's checkpoint is lost and, during its next start, both nodes
+answer 500 for slot 0 because of a fault in front of Bee while the writing node still reports ready with peers,
+the chat starts again at slot 0 and overwrites its old entries.
+
 A known limit: with `CHAT_TOPIC_PATTERN`, anybody can open chats under invented topics until `MAX_ACTIVE_CHATS`
 is reached. A quiet one is evicted to make room for the next chat, but a flood fast enough to fill the cap within
 `CHAT_IDLE_EVICT_MS` holds new chats out until the invented ones go quiet, and `/health` says so. Chats listed in
