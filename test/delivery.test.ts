@@ -155,6 +155,23 @@ describe('history', () => {
     expect(server.healthReport().healthy).toBe(true);
   });
 
+  test('a busy chat saves its history at most once per interval, and a quiet one at once', async () => {
+    const server = await rig.startServer({ HISTORY_SAVE_INTERVAL_MS: '1000' });
+    for (let i = 0; i < 10; i++) {
+      await rig.send(message({ text: `steady ${i}` }));
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    await waitFor(() => server.healthReport().chats[0]?.history?.toSeq === 9, 5000, 'history of all ten');
+    expect(bytesUploads()).toBeLessThanOrEqual(3);
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const before = bytesUploads();
+    const sentAt = Date.now();
+    await rig.send(message({ text: 'after a quiet spell' }));
+    await waitFor(() => bytesUploads() === before + 1, 5000, 'the save after a quiet spell');
+    expect(Date.now() - sentAt).toBeLessThan(500);
+  });
+
   test('a burst of messages costs at most two saves', async () => {
     const server = await rig.startServer();
     rig.writer.faults.dataUploadDelayMs = 400;
