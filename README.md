@@ -64,14 +64,20 @@ over its life, about 20 MB at 300 messages and about 200 MB at 1,000, before red
   `/health` names the stuck slot, how long it has been stuck and how many attempts it took.
 - **A chat without a checkpoint** asks Bee's head lookup and walks forward from there. A 404 from the lookup is
   not taken as a new chat on its own, because Bee answers 404 for a failed lookup too. A chat is new only when
-  the lookup answered 404, slot 0 reads as absent twice a few seconds apart, the writing node answers ready with
-  at least `MIN_CONNECTED_PEERS` connected peers, and the listening node cannot find slot 0 either. A node that
-  cannot reach its peers reads every chunk as absent, which is why the absent answer needs that proof. Any other
-  outcome leaves the chat unpublished and retried later, and a chat that does start this way says so in its log
-  and on `/health`.
+  the lookup answered 404, slot 0 reads as absent twice `READ_RECHECK_MS` apart, the writing node answers ready
+  with at least `MIN_CONNECTED_PEERS` connected peers, and one read on the listening node cannot find slot 0
+  either. A node that cannot reach its peers reads every chunk as absent, which is why the absent answer needs
+  that proof. Any other outcome leaves the chat unpublished and retried later, and a chat that does start this way
+  says so in its log and on `/health`.
+- **What these checks cost, and when.** They run only when a chat's first message arrives and the chat has no
+  checkpoint, which in normal operation means once in the chat's life. A restart or an evicted chat resumes from
+  its checkpoint without them, and a message in a running chat pays one read of its slot before its write and
+  nothing more. A fresh start waits out one `READ_RECHECK_MS`, 1 second by default, plus about eight Bee requests:
+  measured at 1.07 to 1.09 seconds against the test suite's fake Bee, and on a real node plus however long that
+  node takes to answer a lookup and a read for a chunk it does not have.
 - **A slot is absent** only when two reads, `READ_RECHECK_MS` apart, both answer 404 or 500, since Bee answers a
   chunk it could not find either way depending on its version. Timeouts and gateway errors are failed reads,
-  retried and never taken as absent.
+  retried and never taken as absent. Only where absence decides where a chat starts is it read twice.
 - **Before writing a slot** the server reads it once. Absent means it writes. Its own bytes there mean an
   earlier attempt landed. Anything else means the slot is taken, so the server stops publishing that chat and
   says so on the health check. That is also what a checkpoint behind the feed meets, which the server stops at
@@ -139,7 +145,7 @@ its name. A `.env` file in the working directory is read when it is there.
 | `RESUBSCRIBE_IDLE_MS`    | `180000`        | the silence after which the server resubscribes                                                                                     |
 | `HEARTBEAT_INTERVAL_MS`  | `60000`         | how often a heartbeat is sent                                                                                                       |
 | `HEARTBEAT_STALE_MS`     | `180000`        | how long without a frame or a heartbeat before health answers 503, over the interval                                                |
-| `READ_RECHECK_MS`        | `3000`          | the gap between the two reads that confirm an empty slot                                                                            |
+| `READ_RECHECK_MS`        | `1000`          | the gap between the two reads that confirm an empty slot, paid only where absence decides where a chat starts                       |
 | `REQUEST_TIMEOUT_MS`     | `30000`         | the longest any one Bee request may take                                                                                            |
 | `HISTORY_TIMEOUT_MS`     | `180000`        | the longest a history file's upload or download may take, a whole file with its parity rather than one chunk                        |
 | `HISTORY_TRAIL_LIMIT`    | `500`           | rows published since the last saved history file past which `/health` warns, since each one is in the checkpoint until a save lands |

@@ -25,7 +25,8 @@ message format is made in the library first.
 ## Rules that keep the feed safe
 
 - Never write a feed slot without reading it first, and never overwrite a slot holding bytes this server
-  did not write. A slot is absent only when two reads a few seconds apart answer 404 or 500.
+  did not write. Where absence decides where a chat starts, a slot is absent only when two reads
+  `READ_RECHECK_MS` apart answer 404 or 500. The read before an ordinary write is one read.
 - Never resume a chat from Bee's head lookup alone, and never start a chat at slot 0 unless the lookup
   and two reads of slot 0 all say it is empty. The checkpoint is the primary record.
 - The checkpoint is written before its slot, recording the entry about to be written, and it is the only entry

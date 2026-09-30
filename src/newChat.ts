@@ -37,7 +37,8 @@ export async function findHeadWithoutCheckpoint(feed: ChatFeed, controls: NewCha
     return 0;
   }
   await proveWriterSeesTheNetwork(controls);
-  const second = await controls.secondFeed.readSlot(0);
+  // One read: the second node is itself the confirmation, and a gap here would only add to every fresh start.
+  const second = await controls.secondFeed.readSlotOnce(0);
   if (second.kind === 'failed') {
     throw new Error(`the second node could not read slot 0, so a new chat is not started: ${second.error}`);
   }

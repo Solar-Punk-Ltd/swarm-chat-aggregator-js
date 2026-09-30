@@ -132,6 +132,18 @@ describe('restart', () => {
 });
 
 describe('a chat without a checkpoint', () => {
+  test('a fresh start waits out the recheck gap once and no more', async () => {
+    const server = await rig.startServer({ READ_RECHECK_MS: '1000' });
+    const sentAt = Date.now();
+    await rig.send(message({ text: 'the first message of a new chat' }));
+    await waitFor(() => server.stats.published === 1, 15_000, 'the first message');
+    const took = Date.now() - sentAt;
+    console.info(`fresh start with a 1000 ms recheck gap took ${took} ms against the fake Bee`);
+    expect(took).toBeGreaterThanOrEqual(1000);
+    expect(took).toBeLessThan(2000);
+    expect(server.healthReport().chats[0]?.startedWithoutCheckpoint).toBe(true);
+  });
+
   test('does not start while the writing node has fewer peers than the floor, and starts once it has them', async () => {
     rig.writer.faults.connectedPeers = 2;
     const server = await publishOne();
