@@ -3,7 +3,7 @@
 import { FeedFollower } from './feed.mjs';
 import { describeVerdict, isClean } from './ledger.mjs';
 import { payloadsFor, randomKey } from './payloads.mjs';
-import { GsocSender, SendOutcome } from './sender.mjs';
+import { describeSendError, GsocSender, SendOutcome } from './sender.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -41,6 +41,8 @@ class Chat {
     });
     this.expectedIds = [];
     this.outcomes = [];
+    /** Writes the node refused, by what it said, so a refusal fails the scenario rather than the bed. */
+    this.refusals = new Map();
     this.senders = [];
     this.following = true;
     this.followLoop = this.follow();
@@ -54,6 +56,17 @@ class Chat {
         this.ctx.log(`feed read failed, retrying: ${error.message}`);
       }
       await sleep(FOLLOW_INTERVAL_MS);
+    }
+  }
+
+  /** Runs a write and turns a refusal into a recorded outcome, so no send can end the bed. */
+  async attempt(write) {
+    try {
+      return await write();
+    } catch (error) {
+      const line = describeSendError(error);
+      this.refusals.set(line, (this.refusals.get(line) ?? 0) + 1);
+      return SendOutcome.REFUSED;
     }
   }
 
@@ -75,13 +88,15 @@ class Chat {
       say: async (text) => {
         const payload = this.payloads.build({ key, topic: this.topic, text, name, index: index++ });
         this.expectedIds.push(payload.id);
-        const outcome = await sender.send(payload);
+        const outcome = await this.attempt(() => sender.send(payload));
         this.outcomes.push(outcome);
         return outcome;
       },
       sendForged: (text) =>
-        sender.sendOnce(this.payloads.forge({ key, topic: this.topic, text, name, index: index++ }).bytes),
-      sendMalformed: () => sender.sendOnce(this.payloads.malformed(this.topic)),
+        this.attempt(() =>
+          sender.sendOnce(this.payloads.forge({ key, topic: this.topic, text, name, index: index++ }).bytes),
+        ),
+      sendMalformed: () => this.attempt(() => sender.sendOnce(this.payloads.malformed(this.topic))),
     };
   }
 
@@ -103,6 +118,10 @@ class Chat {
     const problems = [];
     if (!isClean(verdict)) problems.push(describeVerdict(verdict));
     if (failedSends) problems.push(`${failedSends} sends gave up unconfirmed`);
+    for (const sender of this.senders) {
+      for (const line of sender.writeErrors ?? []) this.refusals.set(line, (this.refusals.get(line) ?? 0) + 1);
+    }
+    for (const [line, count] of this.refusals) problems.push(`${count} writes refused by the node: ${line}`);
     return { passed: problems.length === 0, detail: problems.join('; ') || describeVerdict(verdict), verdict };
   }
 }

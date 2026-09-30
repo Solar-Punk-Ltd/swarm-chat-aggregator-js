@@ -2,7 +2,14 @@ import { Bee, Identifier } from '@ethersphere/bee-js';
 
 import { PayloadFormat } from './payloads.mjs';
 
-export const SendOutcome = { SENT: 'sent', CONFIRMED: 'confirmed', FAILED: 'failed' };
+export const SendOutcome = { SENT: 'sent', CONFIRMED: 'confirmed', FAILED: 'failed', REFUSED: 'refused' };
+
+/** A write the node refused, as one line: its HTTP status and what the node said. */
+export function describeSendError(error) {
+  const status = error?.status ?? 'no status';
+  const said = error?.responseBody ? JSON.stringify(error.responseBody) : String(error?.message ?? error);
+  return `${status} ${said}`.slice(0, 240);
+}
 
 /** 6.2.8's retryAwaitableAsync defaults: three retries, 250 ms apart, on a failed send only. */
 const V6_RETRIES = 3;
@@ -82,7 +89,7 @@ export class GsocSender {
     try {
       await this.write(bytes);
     } catch (error) {
-      this.writeErrors = [...(this.writeErrors ?? []), String(error?.message ?? error)];
+      this.writeErrors = [...(this.writeErrors ?? []), describeSendError(error)];
     }
   }
 }

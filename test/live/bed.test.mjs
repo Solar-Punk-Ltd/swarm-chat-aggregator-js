@@ -6,7 +6,7 @@ import { WaitAbandoned, waitFor } from './cluster.mjs';
 import { FeedFollower } from './feed.mjs';
 import { FeedLedger, isClean } from './ledger.mjs';
 import { parseChatMessage, PayloadFormat, payloadsFor, randomKey } from './payloads.mjs';
-import { GsocSender, SendOutcome } from './sender.mjs';
+import { describeSendError, GsocSender, SendOutcome } from './sender.mjs';
 
 const decode = (bytes) => new TextDecoder().decode(bytes);
 const draft = (key) => ({ key, topic: 'chat-bed-test', text: 'hello', name: 'tester', index: 0 });
@@ -191,5 +191,16 @@ describe('waitFor', () => {
     );
     assert.equal(calls, 1);
     assert.ok(Date.now() - started < 1000);
+  });
+});
+
+describe('describeSendError', () => {
+  it('names the status and what the node said, and copes with an error that has neither', () => {
+    const refused = Object.assign(new Error('Bad Request: chunk write error'), {
+      status: 400,
+      responseBody: { code: 400, message: 'chunk write error' },
+    });
+    assert.equal(describeSendError(refused), '400 {"code":400,"message":"chunk write error"}');
+    assert.equal(describeSendError(new Error('socket hang up')), 'no status socket hang up');
   });
 });
