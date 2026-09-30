@@ -24,6 +24,7 @@ import type { Settings } from './settings.js';
 import { Stats } from './stats.js';
 import { retryDelayMs } from './utils/backoff.js';
 import { sleep } from './utils/sleep.js';
+import type { PublishTimingSummary } from './utils/timings.js';
 
 export type HealthReport = {
   healthy: boolean;
@@ -40,6 +41,8 @@ export type HealthReport = {
   evictions: number;
   counts: { received: number; published: number; heartbeats: number; dropped: Record<string, number> };
   chats: (ChatHealth & { secondsSinceLastPublish: number | null })[];
+  /** Measured and reported, never asserted and never used to decide anything. */
+  observations: { publishTimings: ({ topic: string } & PublishTimingSummary)[] };
 };
 
 export type ServerOptions = {
@@ -208,6 +211,12 @@ export class AggregatorServer {
         dropped: this.stats.droppedByReason(),
       },
       chats,
+      observations: {
+        publishTimings: [...this.chats.values()].flatMap((chat) => {
+          const summary = chat.publishTimingSummary();
+          return summary ? [{ topic: chat.topic, ...summary }] : [];
+        }),
+      },
     };
   }
 

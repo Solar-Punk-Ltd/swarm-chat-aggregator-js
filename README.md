@@ -102,6 +102,10 @@ seconds since the last frame, since the last heartbeat sent and received, the la
 each chat's state, next slot, queue depth, last publish and any stalled slot, and the counts of received,
 published and dropped messages by reason.
 
+Its `observations` block gives, per chat, the p50, p90 and maximum of each stage of its last 500 publishes: the
+read before the write, the two checkpoint writes, the feed write, and the whole time from receipt to the entry
+landing. They are measured and reported, never asserted, and never change what the server does.
+
 After a restart, look at each chat's `historyLost`. It is the one thing that goes wrong without turning `/health`
 red: it names a history file the chat could not download, so viewers loading older messages stop at that file,
 while the chat itself keeps publishing. A chat that works should not read 503 for the rest of the process, which

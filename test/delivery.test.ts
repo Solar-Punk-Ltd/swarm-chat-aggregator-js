@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { Rig, message, waitFor } from './helpers/harness.js';
+import { CHAT as CHAT_TOPIC, Rig, message, waitFor } from './helpers/harness.js';
 
 let rig: Rig;
 
@@ -98,6 +98,30 @@ describe('retries', () => {
     await waitFor(() => server.healthReport().chats[0]?.history?.toSeq === 2, 5000, 'history caught up');
     const file = rig.history(server.healthReport().chats[0]?.history?.ref ?? '');
     expect(file.messages.map((row) => row.msg.text)).toEqual(['one', 'two', 'three']);
+  });
+});
+
+describe('observations', () => {
+  test('/health reports how long each stage of a publish took, as observations', async () => {
+    const server = await rig.startServer();
+    rig.writer.faults.socWriteDelayMs = 100;
+    for (let i = 0; i < 3; i++) {
+      await rig.send(message({ text: `timed ${i}` }));
+    }
+    await waitFor(
+      () => server.healthReport().observations.publishTimings[0]?.samples === 3,
+      5000,
+      'three timed publishes',
+    );
+    const timings = server.healthReport().observations.publishTimings[0];
+    expect(timings?.topic).toBe(CHAT_TOPIC);
+    expect(timings?.samples).toBe(3);
+    expect(timings?.feedWriteMs.p50).toBeGreaterThanOrEqual(100);
+    for (const stage of [timings?.preWriteReadMs, timings?.checkpointWriteMs, timings?.receivedToWrittenMs]) {
+      expect(stage?.p50).toBeGreaterThanOrEqual(0);
+      expect(stage?.max).toBeGreaterThanOrEqual(stage?.p90 ?? Infinity);
+    }
+    expect(timings?.receivedToWrittenMs.max).toBeGreaterThanOrEqual(timings?.feedWriteMs.max ?? Infinity);
   });
 });
 
