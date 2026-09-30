@@ -238,6 +238,7 @@ export class AggregatorServer {
       (save) => this.saveWithRetries(topic, save),
       () => void chat?.recordHistory(),
       this.options.historyLimits,
+      settings.historySaveIntervalMs,
     );
     chat = new ChatPublisher(
       topic,
