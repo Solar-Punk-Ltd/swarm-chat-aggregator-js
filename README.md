@@ -222,6 +222,16 @@ the whole server against a fake Bee over HTTP and a websocket, in `test/helpers/
 
 The library is vendored as `vendor/solarpunkltd-swarm-chat-js-7.0.0.tgz` until 7.0.0 is published to npm.
 
+## Live test bed
+
+`pnpm test:docker` runs the chat against real Bee nodes on a local test chain, so no real BZZ is spent. It needs a Docker daemon it can reach as a sibling container.
+
+- **The cluster** is fdp-play's local chain and three full Bee nodes, made from fdp-play's own node images, whose keys that chain funded. The server listens on one node and writes through another.
+- **The scenarios** are B1 to B4: many senders at once, a server restart, a listening connection that dies without a close, and a malformed and a forged message. Each passes only when the chat feed holds every valid message exactly once, overwrites no slot and holds nothing else. Timings are printed and never asserted.
+- **Bee 2.8.2 is built from source here, not taken from the released image.** The bed builds Bee v2.8.2 at commit `7e703f49` with `REACHABILITY_OVERRIDE_PUBLIC=true`, the setting fdp-play uses for its own local clusters. A released Bee never counts itself reachable on a private network, so it never stores a chunk pushed to it and every push loops between the nodes until it gives up. The source is pinned by commit and the Go image by digest.
+- **Bee 2.6.0 runs as the released image**, the control that shows that failure.
+- **What a run keeps:** every node's whole log, and each node's status, peer statuses and topology, go into `test-results/`, which git ignores.
+
 ## Further reading
 
 - [Feeds](https://docs.ethswarm.org/docs/develop/tools-and-features/feeds#what-are-feeds)
