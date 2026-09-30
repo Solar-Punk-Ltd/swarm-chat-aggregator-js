@@ -64,7 +64,7 @@ const environmentShape = z.object({
   RESUBSCRIBE_IDLE_MS: milliseconds(3 * MINUTE),
   HEARTBEAT_INTERVAL_MS: milliseconds(MINUTE),
   HEARTBEAT_STALE_MS: milliseconds(3 * MINUTE),
-  READ_RECHECK_MS: milliseconds(3 * SECOND),
+  READ_RECHECK_MS: milliseconds(SECOND),
   REQUEST_TIMEOUT_MS: milliseconds(30 * SECOND),
   HISTORY_TIMEOUT_MS: milliseconds(3 * MINUTE),
   HISTORY_TRAIL_LIMIT: count(500),
