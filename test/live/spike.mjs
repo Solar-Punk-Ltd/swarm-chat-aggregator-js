@@ -75,11 +75,22 @@ async function withRawReplies(label, call) {
   }
 }
 
+/**
+ * An upload result with its bee-js byte values, such as the Reference, written as hex. Their toJSON parses the bytes
+ * as JSON, and JSON.stringify calls toJSON before any replacer, so a plain stringify of the result throws.
+ */
+function withBytesAsHex(result) {
+  if (!result || typeof result !== 'object') return result ?? null;
+  return Object.fromEntries(
+    Object.entries(result).map(([key, value]) => [key, typeof value?.toHex === 'function' ? value.toHex() : value]),
+  );
+}
+
 /** Runs one write and records its outcome, duration and raw replies under observations. It never throws. */
 async function control(beeVersion, label, write) {
   const answer = await answerOf(async () => {
     const result = await withRawReplies(`Bee ${beeVersion} control, ${label}`, write);
-    return { status: 'answered', text: JSON.stringify(result ?? null) };
+    return { status: 'answered', text: JSON.stringify(withBytesAsHex(result)) };
   });
   observations.push(`Bee ${beeVersion} control, ${label}: ${answer}`);
 }
