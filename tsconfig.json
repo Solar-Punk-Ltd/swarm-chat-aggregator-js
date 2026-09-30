@@ -1,12 +1,9 @@
 {
   "compilerOptions": {
-    "rootDir": "./src",
-    "outDir": "./dist/",
-    "target": "ES2020",
-    "allowJs": true,
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "types": ["node"],
     "skipLibCheck": true,
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
@@ -14,8 +11,8 @@
     "moduleResolution": "nodenext",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": false
+    "verbatimModuleSyntax": true,
+    "noEmit": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["**/*.js"]
+  "include": ["src", "test", "vitest.config.ts"]
 }

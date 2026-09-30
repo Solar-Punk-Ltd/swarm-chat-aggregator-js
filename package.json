@@ -1,61 +1,57 @@
 {
   "name": "@solarpunkltd/swarm-chat-aggregator-js",
   "version": "1.0.0",
+  "private": true,
   "description": "Node.js service for aggregating Swarm chat messages (GSOC project)",
-  "license": "Apache-2.0",
-  "type": "module",
-  "node": ">=18",
   "keywords": [
-    "swarm",
-    "js",
-    "chat",
     "GSOC",
-    "aggregator"
+    "aggregator",
+    "chat",
+    "js",
+    "swarm"
   ],
+  "bugs": {
+    "url": "https://github.com/Solar-Punk-Ltd/swarm-chat-aggregator-js/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "levente.kiss@solarpunk.buzz",
   "repository": {
     "type": "git",
     "url": "https://github.com/Solar-Punk-Ltd/swarm-chat-aggregator-js"
   },
-  "bugs": {
-    "url": "https://github.com/Solar-Punk-Ltd/swarm-chat-aggregator-js/issues"
-  },
-  "author": "levente.kiss@solarpunk.buzz",
-  "scripts": {
-    "prepare": "husky",
-    "build": "rimraf dist && tsc",
-    "start": "node dist/index.js",
-    "lint": "eslint . --ext .ts --report-unused-disable-directives --max-warnings 0",
-    "lint:fix": "npm run lint -- --fix",
-    "typecheck": "tsc --noEmit",
-    "test": "pnpm build && node --test \"dist/**/*.test.js\""
-  },
-  "dependencies": {
-    "@solarpunkltd/swarm-chat-js": "^5.0.0",
-    "@ethersphere/bee-js": "^13.0.0",
-    "dotenv": "^16.4.7",
-    "p-queue": "^8.1.0"
-  },
-  "devDependencies": {
-    "@commitlint/cli": "^19.8.0",
-    "@commitlint/config-conventional": "^19.8.0",
-    "@types/node": "^22.7.5",
-    "@typescript-eslint/eslint-plugin": "^6.14.0",
-    "@typescript-eslint/parser": "^6.14.0",
-    "eslint": "^8.55.0",
-    "eslint-config-prettier": "^8.10.0",
-    "eslint-import-resolver-node": "^0.3.9",
-    "eslint-import-resolver-typescript": "^4.3.4",
-    "eslint-plugin-import": "^2.29.1",
-    "eslint-plugin-prettier": "^4.2.1",
-    "eslint-plugin-simple-import-sort": "^10.0.0",
-    "husky": "^9.1.7",
-    "lint-staged": "^15.5.0",
-    "prettier": "^2.8.8",
-    "rimraf": "^6.0.1",
-    "typescript": "^5.8.2"
-  },
   "files": [
     "dist",
     "README.md"
-  ]
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "lint": "oxlint --type-aware .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run && node --test test/live/bed.test.mjs",
+    "test:docker": "pnpm build && node test/live/bed.mjs",
+    "mine": "node dist/mine.js"
+  },
+  "dependencies": {
+    "@ethersphere/bee-js": "13.1.0",
+    "@solarpunkltd/swarm-chat-js": "file:vendor/solarpunkltd-swarm-chat-js-7.0.0.tgz",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.5",
+    "@types/ws": "8.18.1",
+    "oxfmt": "0.68.0",
+    "oxlint": "1.83.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1",
+    "ws": "8.21.3"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@12.4.1+sha512.2e81e399d73fe8390dab25e06aa788ab7a5908248d2f5a370f82b481147a6a7a367bf8048f9a6fdb6460f21a66f0542dedb8b94ca2c8723596741920b1656d4c"
 }

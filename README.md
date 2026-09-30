@@ -1,143 +1,252 @@
-# Swarm Chat JS: Example GSOC Aggregator Server 🐝💬
+# Swarm Chat Aggregator
 
-This project provides an example implementation of a GSOC aggregator server designed to work with the [Solar-Punk-Ltd/swarm-chat-js](https://github.com/Solar-Punk-Ltd/swarm-chat-js) library.
+The chat server for [swarm-chat-js](https://github.com/Solar-Punk-Ltd/swarm-chat-js) 7. Browsers send chat
+messages as GSOC writes to one inbox address. This server listens on that inbox, checks every message, and
+publishes each accepted one into its chat's Swarm feed, which browsers read. The browser only ever talks to
+Swarm, through a gateway or its own Bee node.
 
-The primary function of this server is to receive messages sent by chat users via GSOC and consolidate them into a more persistent, access-controlled Swarm feed (the "chat feed"). This aggregator can manage multiple chat topics under a single GSOC node.
+## How it works
 
-**Note:** This is an example implementation. For production environments, consider enhancing aspects like batch processing, message validation, schema enforcement, and feed writing policies.
+1. **Listening.** The server subscribes to the GSOC inbox on the listening node, the Bee node in the inbox
+   address's neighbourhood. Every chat arrives through this one inbox, and the message's own `topic` says
+   which chat it belongs to.
+2. **Checking.** Each payload is checked by the library's message module (`@solarpunkltd/swarm-chat-js/message`):
+   at most 2,048 bytes, UTF-8 JSON of the version 7 shape, and a signature that recovers the sender's `addr`.
+   Then the server checks that the chat is allowed, that the sender's clock `ts` is within a day of its own,
+   that the message is not a duplicate of one it already took (by `addr` and `id`), and that the chat and the
+   sender are within their rates. Every drop is counted by its reason.
+3. **Publishing.** Each chat has its own queue and publishes one message per feed slot, at indices 0, 1, 2 and
+   on, under the server's feed key and `Topic.fromString(topic)`. Chats publish in parallel.
+4. **History.** Each chat keeps its current history file in memory and saves a new copy after each publish.
+   Every feed entry links the newest saved file, so a viewer opening the chat reads that file plus the entries
+   after it.
 
----
+### The feed entry
 
-## ⚙️ How It Works
+Written to slot `seq` of the chat's feed, always under 4,096 bytes so Bee never wraps it:
 
-The aggregator server operates through the following steps:
+| Field     | Meaning                                                                          |
+| :-------- | :------------------------------------------------------------------------------- |
+| `v`       | `7`                                                                              |
+| `seq`     | the message's number in this chat, equal to the feed index                       |
+| `at`      | the server's receive time in milliseconds, the time a viewer shows               |
+| `msg`     | the message exactly as received and verified                                     |
+| `history` | `{ref, toSeq}` of the newest saved history file, or `null` before the first save |
 
-1.  **GSOC Subscription:** The server connects to a specified Bee node (`GSOC_BEE_URL`) and subscribes to updates on a particular GSOC resource (`GSOC_RESOURCE_ID`) and topic (`GSOC_TOPIC`). This GSOC feed is where chat users publish their messages.
-2.  **Message Reception:** As new messages arrive on the GSOC feed, the server receives them.
-3.  **Message Processing:** The server expects incoming messages to contain a `chatTopic` field (e.g., `parsed.chatTopic`), indicating the specific chat room or topic the message belongs to. This allows the aggregator to handle multiple distinct chat conversations.
-4.  **Message State Management:** The server maintains a complete message history across multiple Swarm references. This history includes all types of messages (reactions, threads, and regular messages). When the accumulated message state exceeds the configurable size limit (10MB by default), a new reference is created to prevent individual references from becoming too large. This creates an array of timestamped references, with only the latest reference being actively updated.
-5.  **Chat Feed Writing:** Valid messages are then written to a separate, designated Swarm feed (the "chat feed"). This feed is managed by a different Bee node (`CHAT_BEE_URL`) and secured with a private key (`CHAT_KEY`), ensuring that only authorized entities (like this aggregator) can write to it. The message state history is stored as an array of references (`ReactionStateRef[]`) rather than a single reference, enabling scalable message history management. Writes to this feed require a valid postage stamp (`CHAT_STAMP`).
+The link trails by however many messages were published while the previous save was running.
 
-This setup allows for a public message submission mechanism via GSOC, with a backend aggregator ensuring messages are collected and stored reliably on a more controlled Swarm feed with efficient handling of large message histories.
+### The history file
 
----
+An ordinary Swarm upload of JSON: `{v: 7, topic, fromSeq, toSeq, messages: [{seq, at, msg}], prev}`. One save
+runs at a time per chat, and messages published meanwhile ride the next save, so a burst costs at most two
+saves, and a busy chat saves at most once per `HISTORY_SAVE_INTERVAL_MS`, so history uploads do not crowd out
+the feed writes on the same node. A file closes at 1,000 messages or 512 KB, and the next one starts with `prev` pointing at it. Files are
+uploaded at the `INSANE` redundancy level.
 
-## 📊 Message State Management
+A file that cannot be downloaded when a chat resumes, as when its stamp has expired, is retried with the resume,
+and after `PUBLISH_ATTEMPTS` failures in a row the chat starts a fresh file whose `prev` points at the lost one.
+The chat keeps publishing, the loss is logged as an error, and `/health` names the lost file as `historyLost`.
 
-The aggregator implements an advanced message state management system designed to handle large volumes of all message types (reactions, threads, and regular messages) efficiently:
+What history costs grows with the square of the chat's length, because each save uploads the whole current
+file again: with messages of about 400 bytes a chat of N messages uploads about 400 × N² / 2 bytes of history
+over its life, about 20 MB at 300 messages and about 200 MB at 1,000, before redundancy.
 
-### Multi-Reference Architecture
+### Restarts and one writer
 
-- **Reference Array:** Instead of storing all message history in a single Swarm reference, the system maintains an array of `ReactionStateRef` objects
-- **Size-Limited References:** Each reference is limited to 10MB (configurable via `maxReactionStateSize`) to prevent performance issues
-- **Automatic Splitting:** When adding a new message would exceed the size limit, a new reference is created automatically
-- **Complete History:** Each reference contains a complete snapshot of message history up to that point
-- **Timestamp Tracking:** Each reference includes a timestamp for chronological ordering and identification of the latest state
+- **Checkpoints, written ahead.** Each chat has a small file in `CHECKPOINT_DIR`: the last slot confirmed in
+  order, the entries in flight with their exact bytes, the newest history link and the rows published after it.
+  An entry is recorded there before its slot is first written, and the file is replaced atomically, written to a
+  temporary file, flushed to disk and renamed. A restart continues exactly where the checkpoint says, resends
+  every entry in flight with its own bytes, and reads nothing else from the feed. A damaged checkpoint, including
+  a list of entries that does not run on slot by slot from the last confirmed one, stops that chat on the health
+  check and never starts it again at slot 0.
+- **Several slots in flight, confirmed in order.** Up to `PUBLISH_WINDOW` slots of one chat are written at once,
+  so a burst is not paced by one write at a time. Slots can land in any order, and a slot counts as confirmed
+  only once every slot before it has landed, so the checkpoint's last confirmed slot only ever moves forward over
+  slots that all hold their entries. A viewer may see a later slot a moment before an earlier one fills in.
+- **One entry per slot, and a stall rather than a gap.** Only a slot's recorded entry is ever written to it, and
+  it is resent unchanged, with a delay doubling up to 30 seconds, until one write succeeds, for as long as that
+  takes. Messages past the window queue behind it, and past `QUEUE_LIMIT` they are dropped and logged as dead
+  letters with their ids. So a Bee that refuses writes pauses the chat instead of forking it or leaving a hole,
+  and `/health` names the first stuck slot, how long it has been stuck and how many attempts it took.
+- **A chat without a checkpoint** asks Bee's head lookup and walks forward from there. A 404 from the lookup is
+  not taken as a new chat on its own, because Bee answers 404 for a failed lookup too. A chat is new only when
+  the lookup answered 404, slot 0 reads as absent twice `READ_RECHECK_MS` apart, the writing node answers ready
+  with at least `MIN_CONNECTED_PEERS` connected peers, and one read on the listening node cannot find slot 0
+  either. A node that cannot reach its peers reads every chunk as absent, which is why the absent answer needs
+  that proof. Any other outcome leaves the chat unpublished and retried later, and a chat that does start this way
+  says so in its log and on `/health`.
+- **What these checks cost, and when.** They run only when a chat's first message arrives and the chat has no
+  checkpoint, which in normal operation means once in the chat's life. A restart or an evicted chat resumes from
+  its checkpoint without them, and a message in a running chat pays one read of its slot before its write and
+  nothing more. A fresh start waits out one `READ_RECHECK_MS`, 1 second by default, plus about eight Bee requests:
+  measured at 1.07 to 1.09 seconds against the test suite's fake Bee, and on a real node plus however long that
+  node takes to answer a lookup and a read for a chunk it does not have.
+- **A slot is absent** only when two reads, `READ_RECHECK_MS` apart, both answer 404 or 500, since Bee answers a
+  chunk it could not find either way depending on its version. Timeouts and gateway errors are failed reads,
+  retried and never taken as absent. Only where absence decides where a chat starts is it read twice.
+- **Before writing a slot** the server reads it once. Absent means it writes. Its own bytes there mean an
+  earlier attempt landed. Anything else means the slot is taken, so the server stops publishing that chat and
+  says so on the health check. That is also what a checkpoint behind the feed meets, which the server stops at
+  rather than overwrite.
+- **The lock.** On start the server locks `CHECKPOINT_DIR` with a lock file holding a random instance id,
+  refreshed every `LOCK_REFRESH_MS`. A start waits while a live holder keeps it fresh and then refuses. A lock
+  older than `LOCK_STALE_MS` is taken over, which is how a restart after a kill gets in.
 
-### State Structure
+### Staying able to hear
 
-Each `ReactionStateRef` contains:
+A websocket dropped by a proxy never reports a close, so the server resubscribes whenever no frame has arrived
+for `RESUBSCRIBE_IDLE_MS`, opening the new subscription before closing the old one. It also sends itself a
+heartbeat every `HEARTBEAT_INTERVAL_MS` through the heartbeat node, which must be a different node from the
+listening one. Heartbeats are `{v: 7, type: "heartbeat", nonce}`, recognised before any chat message, matched
+against the nonces the server sent, counted, and never published.
 
-```typescript
-{
-  reference: string; // Swarm reference hash pointing to MessageData[]
-  timestamp: number; // Creation timestamp
-}
+### Health
+
+`GET /health` on `HEALTH_PORT` answers 200 when all is well and 503 when no frame arrived, no heartbeat was
+sent or none came back within `HEARTBEAT_STALE_MS`, or a chat cannot publish. Its JSON body carries the
+seconds since the last frame, since the last heartbeat sent and received, the last send and subscribe errors,
+each chat's state, next slot, queue depth, last publish and any stalled slot, and the counts of received,
+published and dropped messages by reason.
+
+Its `observations` block gives, per chat, the p50, p90 and maximum of each stage of its last 500 publishes: the
+read before the write, the two checkpoint writes, the feed write, and the whole time from receipt to the entry
+landing. They are measured and reported, never asserted, and never change what the server does.
+
+After a restart, look at each chat's `historyLost`. It is the one thing that goes wrong without turning `/health`
+red: it names a history file the chat could not download, so viewers loading older messages stop at that file,
+while the chat itself keeps publishing. A chat that works should not read 503 for the rest of the process, which
+is why it is a field and not a problem.
+
+### Shutdown
+
+On `SIGTERM` or `SIGINT` the server stops taking messages and spends up to `SHUTDOWN_DEADLINE_MS` publishing
+what is queued and finishing the history saves. At the deadline it drops what is still queued, logged as dead
+letters, then waits for any Bee request already sent to answer, which `REQUEST_TIMEOUT_MS` bounds, so the
+checkpoint records whatever landed before it releases the lock and exits. The deadline therefore bounds the
+publishing, not the whole stop, which can take up to about `SHUTDOWN_DEADLINE_MS` plus `REQUEST_TIMEOUT_MS`. An
+entry still unwritten stays recorded in the checkpoint and is sent first after the restart.
+
+A stop that is cut short, by a kill or a crash, loses what was queued without a dead-letter line, and never the
+feed's consistency, which the checkpoint keeps.
+
+## Settings
+
+Environment variables, read once at start. A missing or malformed one stops the server with exit code 2 and
+its name. A `.env` file in the working directory is read when it is there.
+
+| Variable                   | Default         | Meaning                                                                                                                             |
+| :------------------------- | :-------------- | :---------------------------------------------------------------------------------------------------------------------------------- |
+| `LISTEN_BEE_URL`           | required        | the Bee node the server subscribes on, in the inbox address's neighbourhood                                                         |
+| `WRITE_BEE_URL`            | required        | the Bee node that uploads feed entries and history files                                                                            |
+| `HEARTBEAT_BEE_URL`        | required        | a different Bee node that heartbeats are sent through, the one browsers send through                                                |
+| `WRITE_STAMP`              | required        | the postage batch id of the writing node, 64 hex characters                                                                         |
+| `HEARTBEAT_STAMP`          | required        | a batch id the heartbeat node accepts                                                                                               |
+| `FEED_KEY`                 | required        | the private key the chat feeds are written under, 64 hex characters                                                                 |
+| `GSOC_KEY`                 | required        | the inbox's private key, public by design since every browser signs with it                                                         |
+| `GSOC_IDENTIFIER`          | required        | the inbox's identifier string                                                                                                       |
+| `CHAT_TOPICS`              | one of the two  | the allowed chats, a comma-separated list of topics                                                                                 |
+| `CHAT_TOPIC_PATTERN`       | one of the two  | the allowed chats, a regular expression matched against the whole topic                                                             |
+| `MAX_ACTIVE_CHATS`         | `50`            | how many chats outside `CHAT_TOPICS` the server publishes at once, listed chats are not counted                                     |
+| `CHAT_IDLE_EVICT_MS`       | `600000`        | how long a chat outside `CHAT_TOPICS` must be quiet before it may be evicted to make room at the cap                                |
+| `RATE_WINDOW_MS`           | `60000`         | the window the two rates count in                                                                                                   |
+| `RATE_PER_CHAT`            | `600`           | messages per window in one chat                                                                                                     |
+| `RATE_PER_SENDER`          | `30`            | messages per window from one sender in one chat                                                                                     |
+| `QUEUE_LIMIT`              | `500`           | messages waiting per chat, past which more are dropped                                                                              |
+| `PUBLISH_WINDOW`           | `8`             | how many slots of one chat may be in flight at once, each with its own entry, confirmed in slot order                               |
+| `RESUBSCRIBE_IDLE_MS`      | `180000`        | the silence after which the server resubscribes                                                                                     |
+| `HEARTBEAT_INTERVAL_MS`    | `60000`         | how often a heartbeat is sent                                                                                                       |
+| `HEARTBEAT_STALE_MS`       | `180000`        | how long without a frame or a heartbeat before health answers 503, over the interval                                                |
+| `READ_RECHECK_MS`          | `1000`          | the gap between the two reads that confirm an empty slot, paid only where absence decides where a chat starts                       |
+| `REQUEST_TIMEOUT_MS`       | `30000`         | the longest any one Bee request may take                                                                                            |
+| `HISTORY_TIMEOUT_MS`       | `180000`        | the longest a history file's upload or download may take, a whole file with its parity rather than one chunk                        |
+| `HISTORY_TRAIL_LIMIT`      | `500`           | rows published since the last saved history file past which `/health` warns, since each one is in the checkpoint until a save lands |
+| `HISTORY_SAVE_INTERVAL_MS` | `5000`          | the least time between two history uploads of one chat while it is busy, a quiet chat saves at once                                 |
+| `RESUME_RETRY_MS`          | `30000`         | how long a chat whose head is unknown waits before trying again                                                                     |
+| `PUBLISH_ATTEMPTS`         | `6`             | attempts per history save, and feed-write attempts before a stalled slot turns health red                                           |
+| `RETRY_BASE_MS`            | `1000`          | the first retry delay, doubling up to 30 seconds                                                                                    |
+| `SHUTDOWN_DEADLINE_MS`     | `20000`         | how long a shutdown may spend publishing what is queued                                                                             |
+| `LOCK_REFRESH_MS`          | `5000`          | how often the lock holder refreshes the lock                                                                                        |
+| `LOCK_STALE_MS`            | `60000`         | how old a lock must be before a new start takes it over, over twice the refresh                                                     |
+| `MIN_CONNECTED_PEERS`      | `8`             | connected peers the writing node needs before a chat with no checkpoint starts at slot 0, 1 on a two-node test cluster              |
+| `CROSS_CHECK_TIMEOUT_MS`   | `10000`         | the timeout of the second node's read of slot 0 for a chat with no checkpoint                                                       |
+| `CHECKPOINT_DIR`           | `./checkpoints` | where the checkpoints and the lock live, a volume in a container                                                                    |
+| `HEALTH_PORT`              | `3000`          | the port of `GET /health`                                                                                                           |
+
+Seven settings replace variables of the 6.x server, which are no longer read:
+
+- `LISTEN_BEE_URL` replaces `GSOC_BEE_URL`.
+- `WRITE_BEE_URL` replaces `CHAT_BEE_URL`.
+- `FEED_KEY` replaces `CHAT_KEY`.
+- `WRITE_STAMP` replaces `CHAT_STAMP`.
+- `GSOC_KEY` replaces `GSOC_RESOURCE_ID`.
+- `GSOC_IDENTIFIER` replaces `GSOC_TOPIC`.
+- `HEALTH_PORT` replaces `PORT`.
+
+A known limit, accepted by the owner: if a chat's checkpoint is lost and, during its next start, both nodes
+answer 500 for slot 0 because of a fault in front of Bee while the writing node still reports ready with peers,
+the chat starts again at slot 0 and overwrites its old entries.
+
+A known limit: with `CHAT_TOPIC_PATTERN`, anybody can open chats under invented topics until `MAX_ACTIVE_CHATS`
+is reached. A quiet one is evicted to make room for the next chat, but a flood fast enough to fill the cap within
+`CHAT_IDLE_EVICT_MS` holds new chats out until the invented ones go quiet, and `/health` says so. Chats listed in
+`CHAT_TOPICS` are never held out, so listing the event's chats closes it.
+
+The per-sender rate is weak, because a key costs nothing. The per-chat rate and the writing gateway's own
+per-IP limit are the real brakes.
+
+## Mining the inbox key
+
+The inbox key must place the inbox address in the listening node's neighbourhood. After `pnpm build`:
+
+```bash
+pnpm mine --overlay <the listening node's overlay address> --identifier <GSOC_IDENTIFIER> --proximity 12
 ```
 
-The referenced data contains an array of `MessageData` objects representing the complete message history.
+It prints the `GSOC_KEY` and `GSOC_IDENTIFIER` to set.
 
-### Initialization Behavior
+## Running
 
-- **Latest State Loading:** During topic initialization, only the chronologically latest reference is downloaded and loaded into memory
-- **Complete History Access:** While only the latest state is actively loaded, the full message history remains accessible through previous references
-- **Performance Optimization:** Historical message states remain on Swarm but are not loaded, reducing memory usage
-- **Seamless Recovery:** The system can resume from any existing state without data loss
+Node 24 and pnpm 12, which corepack takes from `packageManager`:
 
----
+```bash
+pnpm install
+pnpm build
+pnpm start
+```
 
-## 🔧 Configuration
+With Docker:
 
-The server requires the following environment variables to be set:
+```bash
+docker build -t swarm-chat-aggregator .
+docker run -d --name swarm-chat-aggregator --env-file .env -v aggregator-checkpoints:/app/checkpoints \
+  --stop-timeout 60 --restart unless-stopped swarm-chat-aggregator
+```
 
-| Variable           | Description                                                                      |
-| :----------------- | :------------------------------------------------------------------------------- |
-| `GSOC_BEE_URL`     | The URL of the Bee node used for GSOC operations (subscribing to user messages). |
-| `GSOC_RESOURCE_ID` | The mined Swarm resource ID of the GSOC feed the aggregator listens to.          |
-| `GSOC_TOPIC`       | The specific topic hash on the GSOC feed that this aggregator monitors.          |
-| `CHAT_BEE_URL`     | The URL of the Bee node used for writing to the consolidated chat feed.          |
-| `CHAT_KEY`         | The private key used to sign updates to the consolidated chat feed.              |
-| `CHAT_STAMP`       | The postage stamp ID used for uploading content to the chat feed.                |
+Docker kills a container 10 seconds after `docker stop` unless told otherwise, which is shorter than a drain. Set
+`--stop-timeout`, or `stop_grace_period` in Compose, above `SHUTDOWN_DEADLINE_MS` plus `REQUEST_TIMEOUT_MS`,
+which is 50 seconds with the defaults, so 60 above. Keep one container per feed key, with its checkpoint volume,
+and give it at least `LOCK_STALE_MS` to start after a kill.
 
-## 🚀 Running the Aggregator
+## Development
 
-### Option 1: Node.js (Direct)
+`pnpm lint`, `pnpm format`, `pnpm format:check`, `pnpm typecheck`, `pnpm test` and `pnpm build`. The tests run
+the whole server against a fake Bee over HTTP and a websocket, in `test/helpers/fakeBee.ts`.
 
-1.  **Clone the repository:**
-    ```bash
-    git clone git@github.com:Solar-Punk-Ltd/swarm-chat-aggregator-js.git
-    cd swarm-chat-aggregator-js
-    ```
-2.  **Install dependencies:**
-    ```bash
-    pnpm install
-    ```
-3.  **Set up your environment variables:**
-    Create a `.env` file in the root of the project with the variables listed above, or set them in your deployment environment.
-4.  **Build the server:**
-    ```bash
-    pnpm build
-    ```
-5.  **Start the server:**
-    ```bash
-    pnpm start
-    ```
+The library is vendored as `vendor/solarpunkltd-swarm-chat-js-7.0.0.tgz` until 7.0.0 is published to npm.
 
-### Option 2: Docker
+## Live test bed
 
-1.  **Clone the repository:**
+`pnpm test:docker` runs the chat against real Bee nodes on a local test chain, so no real BZZ is spent. It needs a Docker daemon it can reach as a sibling container.
 
-    ```bash
-    git clone git@github.com:Solar-Punk-Ltd/swarm-chat-aggregator-js.git
-    cd swarm-chat-aggregator-js
-    ```
+- **The cluster** is fdp-play's local chain and three full Bee nodes, made from fdp-play's own node images, whose keys that chain funded. The server listens on one node and writes through another.
+- **The scenarios** are B1 to B4: many senders at once, a server restart, a listening connection that dies without a close, and a malformed and a forged message. Each passes only when the chat feed holds every valid message exactly once, overwrites no slot and holds nothing else. Timings are printed and never asserted.
+- **Bee 2.8.2 is built from source here, not taken from the released image.** The bed builds Bee v2.8.2 at commit `7e703f49` with `REACHABILITY_OVERRIDE_PUBLIC=true`, the setting fdp-play uses for its own local clusters. A released Bee never counts itself reachable on a private network, so it never stores a chunk pushed to it and every push loops between the nodes until it gives up. The source is pinned by commit and the Go image by digest.
+- **Bee 2.6.0 runs as the released image**, the control that shows that failure.
+- **What a run keeps:** every node's whole log, and each node's status, peer statuses and topology, go into `test-results/`, which git ignores.
 
-2.  **Set up your environment variables:**
-    Create a `.env` file in the root of the project with the required variables.
+## Further reading
 
-3.  **Build and run with Docker:**
-
-    ```bash
-    # Build the Docker image
-    docker build -t swarm-chat-aggregator .
-
-    # Run the container
-    docker run -d \
-      --name swarm-chat-aggregator \
-      --env-file .env \
-      --restart unless-stopped \
-      swarm-chat-aggregator
-    ```
-
----
-
-## 💡 Limitations & Potential Improvements
-
-This example serves as a basic illustration. For a more robust, production-ready aggregator, consider the following enhancements:
-
-- **Batch Processing:** Implement batching for writing messages to the chat feed to improve efficiency and reduce the number of individual Swarm operations.
-- **Advanced Validation:** Introduce stricter validation rules and schemas for incoming messages to ensure data integrity and security.
-- **Message State Size Tuning:** The default 10MB limit for message state references can be adjusted based on your specific use case and network conditions. Consider implementing dynamic sizing or compression strategies.
-- **State Consolidation:** Implement periodic consolidation of older message state references to optimize storage and retrieval performance for long-lived conversations.
-- **Flexible Feed Logic:** Explore different strategies for organizing chat feeds (e.g., separate feeds per topic, time-based rotation) depending on scale and requirements.
-- **Error Handling & Resilience:** Improve error handling, implement retry mechanisms for Swarm operations, and ensure the aggregator can recover from transient network issues.
-- **Scalability:** Design for horizontal scalability if anticipating a large number of users or topics.
-- **Monitoring & Logging:** Integrate comprehensive logging and monitoring to track the aggregator's health and performance, including message state reference counts and sizes.
-
----
-
-## 📚 Further Reading
-
-- [What are Feeds? (Official Swarm Documentation)](https://docs.ethswarm.org/docs/develop/tools-and-features/feeds#what-are-feeds)
-- [GSOC Introduction (Official Swarm Documentation)](https://docs.ethswarm.org/docs/develop/tools-and-features/gsoc/#introduction)
-- [Solar-Punk-Ltd/swarm-chat-js Library](https://github.com/Solar-Punk-Ltd/swarm-chat-js)
+- [Feeds](https://docs.ethswarm.org/docs/develop/tools-and-features/feeds#what-are-feeds)
+- [GSOC](https://docs.ethswarm.org/docs/develop/tools-and-features/gsoc/#introduction)
+- [swarm-chat-js](https://github.com/Solar-Punk-Ltd/swarm-chat-js)
