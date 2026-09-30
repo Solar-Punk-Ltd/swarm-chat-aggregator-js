@@ -273,23 +273,56 @@ export class Cluster {
 
     const options = FDP_PLAY.beeOptions(this.names.chain);
 
-    this.runBee('queen', beeImageFor(this.beeVersion, 'queen', this.report), { ...options, 'bootnode-mode': 'false' });
+    // The third node starts first and is the bootnode for both the queen and the worker. A node's health service
+    // marked the peer it used as its bootnode unhealthy on every run, and pushsync prefers healthy peers, so with the
+    // queen as bootnode the worker pushed GSOC chunks past the listening queen. With radius 0 the first node a chunk
+    // reaches stores it and forwards nothing, so those messages never reached the listener. The third node's arrival
+    // order also keeps a peer event after start-up on the queen and the worker, which Bee 2.6's warm-up needs.
+    this.runBee('third', beeImageFor(this.beeVersion, 'third', this.report), { ...options, 'bootnode-mode': 'false' });
+    await this.waitHealthy('third');
+    const underlay = await this.underlayOf('third');
+    this.runBee('queen', beeImageFor(this.beeVersion, 'queen', this.report), { ...options, bootnode: underlay });
     await this.waitHealthy('queen');
-    const underlay = await this.underlayOf('queen');
     this.runBee('worker', beeImageFor(this.beeVersion, 'worker', this.report), { ...options, bootnode: underlay });
     await this.waitHealthy('worker');
-    await this.waitPeered();
-    // The third node joins once the other two have started. Bee 2.6's NewBee closes its warm-up detector on return,
-    // which drops a peer event from during start-up, so a node whose only peer arrived then never warms up. The third
-    // node's arrival is a peer event after start-up on both. It is also a second peer for each node's health service.
-    this.runBee('third', beeImageFor(this.beeVersion, 'third', this.report), { ...options, bootnode: underlay });
-    await this.waitHealthy('third');
-    await waitFor(
-      'the queen to see both other nodes',
-      async () => (await httpJson(`${this.url('queen')}/peers`)).peers.length >= 2,
-      { timeoutMs: 180_000 },
-    );
+    for (const role of BEE_ROLES) {
+      await waitFor(
+        `${role} to see both other nodes`,
+        async () => (await httpJson(`${this.url(role)}/peers`)).peers.length >= 2,
+        { timeoutMs: 180_000 },
+      );
+    }
     for (const role of BEE_ROLES) await this.waitWarmedUp(role);
+    await this.recordPeerHealth('after start-up');
+  }
+
+  /**
+   * Each node's view of its peers, healthy and reachable, as its topology holds them. pushsync picks a healthy peer
+   * first, so the worker's view of the queen decides whether GSOC chunks reach the listener.
+   */
+  async recordPeerHealth(when) {
+    for (const role of BEE_ROLES) {
+      let view;
+      try {
+        const topology = await httpJson(`${this.url(role)}/topology`, { timeoutMs: 10_000 });
+        const roleOf = Object.fromEntries(
+          await Promise.all(
+            BEE_ROLES.map(async (other) => [(await httpJson(`${this.url(other)}/addresses`)).overlay, other]),
+          ),
+        );
+        view = Object.values(topology.bins ?? {})
+          .flatMap((bin) => bin.connectedPeers ?? [])
+          .map(
+            (peer) =>
+              `${roleOf[peer.address] ?? peer.address.slice(0, 8)} healthy ${peer.metrics?.healthy} ` +
+              `reachability ${peer.metrics?.reachability}`,
+          )
+          .join(', ');
+      } catch (error) {
+        view = `could not be read: ${error.message}`;
+      }
+      this.observe(`Bee ${this.beeVersion} ${role}'s peers ${when}: ${view || 'none'}`);
+    }
   }
 
   /**

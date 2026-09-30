@@ -83,6 +83,7 @@ try {
     },
   });
   await server.start();
+  await cluster.recordPeerHealth('before B1');
 
   const ctx = {
     cluster,
