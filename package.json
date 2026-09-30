@@ -37,7 +37,7 @@
   },
   "dependencies": {
     "@ethersphere/bee-js": "13.1.0",
-    "@solarpunkltd/swarm-chat-js": "file:vendor/solarpunkltd-swarm-chat-js-7.0.0.tgz",
+    "@solarpunkltd/swarm-chat-js": "7.0.0",
     "zod": "4.6.5"
   },
   "devDependencies": {

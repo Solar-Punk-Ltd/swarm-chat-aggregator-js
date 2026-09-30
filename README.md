@@ -233,7 +233,8 @@ and give it at least `LOCK_STALE_MS` to start after a kill.
 `pnpm lint`, `pnpm format`, `pnpm format:check`, `pnpm typecheck`, `pnpm test` and `pnpm build`. The tests run
 the whole server against a fake Bee over HTTP and a websocket, in `test/helpers/fakeBee.ts`.
 
-The library is vendored as `vendor/solarpunkltd-swarm-chat-js-7.0.0.tgz` until 7.0.0 is published to npm.
+The message library is `@solarpunkltd/swarm-chat-js` 7.0.0 from npm, exempt from the one-week release age in
+`pnpm-workspace.yaml` because it is our own package.
 
 ## Live test bed
 
