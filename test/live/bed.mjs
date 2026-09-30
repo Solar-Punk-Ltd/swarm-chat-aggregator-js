@@ -58,7 +58,9 @@ try {
   // Every message goes to one GSOC address, so every write lands in one stamp bucket. An immutable batch refuses a
   // bucket's write past 2^(depth - 16) with "chunk write error", and a mutable one reuses its oldest slot, so the
   // stamps writing there repeatedly, the senders' and the heartbeat's, are mutable, as a chat gateway's must be.
-  const senderStamp = await cluster.buyStamp({ immutable: false });
+  // Depth 24 gives the chat's one GSOC address 256 stamp slots. At depth 20 its 16 slots were reused so fast under
+  // B1 that a late write found its slot taken by a newer one, and the worker refused it with 500.
+  const senderStamp = await cluster.buyStamp({ depth: 24, immutable: false });
   const heartbeatStamp = await cluster.buyStamp({ immutable: false });
   const serverStamp = await cluster.buyStamp();
 
