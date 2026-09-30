@@ -82,6 +82,18 @@ describe('publishing', () => {
   });
 });
 
+describe('speed', () => {
+  test('a message in a running chat is written without waiting out the recheck gap', async () => {
+    const server = await rig.startServer({ READ_RECHECK_MS: '2000' });
+    await rig.send(message({ text: 'opens the chat' }));
+    await waitFor(() => server.stats.published === 1, 15_000, 'the first message');
+    const sentAt = Date.now();
+    await rig.send(message({ text: 'in a running chat' }));
+    await waitFor(() => server.stats.published === 2, 15_000, 'the second message');
+    expect(Date.now() - sentAt).toBeLessThan(1000);
+  });
+});
+
 describe('rates', () => {
   test('holds one sender to its rate and the chat to its own', async () => {
     const server = await rig.startServer({ RATE_PER_SENDER: '2', RATE_PER_CHAT: '3' });

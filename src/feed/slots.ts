@@ -17,6 +17,11 @@ export type SlotWrite = { kind: 'written' } | { kind: 'failed'; error: string };
 export interface ChatFeed {
   /** Reads a slot. A slot is empty only when two reads, `recheckMs` apart, both answer as absent. */
   readSlot(index: number): Promise<SlotRead>;
+  /**
+   * One read, where an absent answer is not confirmed. For the read before a write, which only has to find an
+   * entry that is there: an absent slot is written either way, so a second read would only add its gap.
+   */
+  readSlotOnce(index: number): Promise<SlotRead>;
   /** Bee's head lookup. Bee answers 404 for a failed lookup as well as for no update, so `none` proves nothing. */
   lookupHead(): Promise<HeadLookup>;
   writeSlot(index: number, payload: Uint8Array): Promise<SlotWrite>;
@@ -75,12 +80,12 @@ export class BeeChatFeed implements ChatFeed {
   }
 
   async readSlot(index: number): Promise<SlotRead> {
-    const first = await this.readOnce(index);
+    const first = await this.readSlotOnce(index);
     if (first.kind !== 'empty') {
       return first;
     }
     await sleep(this.recheckMs);
-    return this.readOnce(index);
+    return this.readSlotOnce(index);
   }
 
   async lookupHead(): Promise<HeadLookup> {
@@ -109,7 +114,7 @@ export class BeeChatFeed implements ChatFeed {
     return { signal: AbortSignal.timeout(this.timeoutMs) };
   }
 
-  private async readOnce(index: number): Promise<SlotRead> {
+  async readSlotOnce(index: number): Promise<SlotRead> {
     try {
       const reader = this.bee.feed.makeReader(this.topic, this.signer.publicKey().address(), this.requestOptions());
       const update = await reader.downloadPayload({ index: slotIndex(index) });

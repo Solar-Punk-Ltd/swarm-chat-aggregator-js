@@ -511,7 +511,7 @@ export class ChatPublisher {
 
   /** What the slot holds before its first write. Undefined means empty, so the write goes ahead. */
   private async checkSlot(pending: PendingEntry): Promise<'landed' | 'blocked' | 'failed' | undefined> {
-    const read = await this.feed.readSlot(pending.index);
+    const read = await this.feed.readSlotOnce(pending.index);
     switch (read.kind) {
       case 'empty':
         return undefined;
