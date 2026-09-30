@@ -70,6 +70,19 @@ class Chat {
     }
   }
 
+  /** This chat's publish timings from the server's /health observations, as one line. */
+  async publishTimings() {
+    const health = await this.ctx.server.health();
+    const timings = health?.observations?.publishTimings;
+    if (!Array.isArray(timings)) return 'publish timings not reported by this server';
+    const mine = timings.find((entry) => entry.topic === this.topic);
+    if (!mine) return 'no publish timings for this chat';
+    const stages = ['preWriteReadMs', 'checkpointWriteMs', 'feedWriteMs', 'receivedToWrittenMs'].map(
+      (stage) => `${stage} p50 ${mine[stage]?.p50} p90 ${mine[stage]?.p90} max ${mine[stage]?.max}`,
+    );
+    return `publish timings over ${mine.samples} publishes: ${stages.join(', ')}`;
+  }
+
   person(name) {
     const key = randomKey();
     const sender = new GsocSender({
@@ -88,6 +101,7 @@ class Chat {
       say: async (text) => {
         const payload = this.payloads.build({ key, topic: this.topic, text, name, index: index++ });
         this.expectedIds.push(payload.id);
+        this.firstSentAt ??= Date.now();
         const outcome = await this.attempt(() => sender.send(payload));
         this.outcomes.push(outcome);
         return outcome;
@@ -125,6 +139,14 @@ class Chat {
       `${this.topic}: ${messages} messages, ${writes} GSOC writes, ${resendsPerMessage} resends per message, ` +
         `${serverErrors} answered 500, ${this.follower.ledger.slots.size} feed slots`,
     );
+    const lastAppearedAt = this.follower.ledger.lastAppearedAt(this.expectedIds);
+    this.ctx.observe(
+      `${this.topic}: first send to last message in the feed ` +
+        (lastAppearedAt === null || this.firstSentAt === undefined
+          ? 'not reached, some messages never appeared'
+          : `${lastAppearedAt - this.firstSentAt} ms, to the feed follower's 1 s poll`),
+    );
+    this.ctx.observe(`${this.topic}: ${await this.publishTimings()}`);
     const problems = [];
     if (!isClean(verdict)) problems.push(describeVerdict(verdict));
     if (failedSends) problems.push(`${failedSends} sends gave up unconfirmed`);

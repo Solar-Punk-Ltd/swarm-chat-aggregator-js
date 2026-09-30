@@ -13,10 +13,22 @@ export class FeedLedger {
     this.slots = new Map();
   }
 
-  record(index, id) {
+  record(index, id, seenAt = Date.now()) {
     const slot = this.slots.get(index);
     if (slot) slot.last = id;
-    else this.slots.set(index, { first: id, last: id });
+    else this.slots.set(index, { first: id, last: id, seenAt });
+  }
+
+  /** When the last of these ids was first seen in the feed, or null while any of them is still missing. */
+  lastAppearedAt(ids) {
+    const seenAt = new Map();
+    for (const { last, seenAt: at } of this.slots.values()) if (!seenAt.has(last)) seenAt.set(last, at);
+    let latest = 0;
+    for (const id of ids) {
+      if (!seenAt.has(id)) return null;
+      latest = Math.max(latest, seenAt.get(id));
+    }
+    return latest;
   }
 
   /** The first index the bed has not read yet, since a feed fills from 0 without gaps. */
