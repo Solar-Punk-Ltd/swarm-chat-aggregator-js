@@ -15,6 +15,7 @@ import type { Logger } from './libs/logger.js';
 import { DropReason, type Stats } from './stats.js';
 import { retryDelayMs } from './utils/backoff.js';
 import { RecentIds } from './utils/recentIds.js';
+import { type PublishTimingSummary, PublishTimings } from './utils/timings.js';
 import { sleep } from './utils/sleep.js';
 
 export const ChatState = {
@@ -60,7 +61,17 @@ export type ChatHealth = {
 type Queued = { msg: ChatMessage; at: number };
 
 /** The one entry allowed into slot `index`, recorded in the checkpoint before it is written. */
-type PendingEntry = { index: number; bytes: Uint8Array; row: HistoryRow; persisted: boolean };
+type PendingEntry = {
+  index: number;
+  bytes: Uint8Array;
+  row: HistoryRow;
+  persisted: boolean;
+  spent: StageTimes;
+};
+
+type StageTimes = { preWriteReadMs: number; checkpointWriteMs: number; feedWriteMs: number };
+
+const noTimeSpent = (): StageTimes => ({ preWriteReadMs: 0, checkpointWriteMs: 0, feedWriteMs: 0 });
 
 class ResumeError extends Error {}
 
@@ -89,6 +100,7 @@ export class ChatPublisher {
   private lastActivityAt = Date.now();
   private startedWithoutCheckpoint = false;
   private historyDownloadFailures = 0;
+  private readonly publishTimings = new PublishTimings();
   private historyLost: HistoryLink | null = null;
   private lastError: string | null = null;
   private failing = false;
@@ -329,7 +341,13 @@ export class ChatPublisher {
       if (checkpoint.pending.index !== checkpoint.index + 1 || !entry.ok) {
         throw new CheckpointDamagedError(`its pending entry is not the entry for slot ${checkpoint.index + 1}`);
       }
-      pending = { index: checkpoint.pending.index, bytes, row: rowOf(entry.value), persisted: true };
+      pending = {
+        index: checkpoint.pending.index,
+        bytes,
+        row: rowOf(entry.value),
+        persisted: true,
+        spent: noTimeSpent(),
+      };
     }
 
     this.history.restore(await this.historyStart(checkpoint.history), checkpoint.rows);
@@ -451,9 +469,12 @@ export class ChatPublisher {
   private async stage(queued: Queued): Promise<void> {
     const row: HistoryRow = { seq: this.nextIndex, at: queued.at, msg: queued.msg };
     const bytes = encodeFeedEntry(makeFeedEntry(row, this.history.newestLink));
-    this.pending = { index: this.nextIndex, bytes, row, persisted: false };
+    this.pending = { index: this.nextIndex, bytes, row, persisted: false, spent: noTimeSpent() };
     for (let attempt = 0; !this.stopped; attempt++) {
-      if (await this.writeCheckpoint()) {
+      const startedAt = performance.now();
+      const written = await this.writeCheckpoint();
+      this.pending.spent.checkpointWriteMs += performance.now() - startedAt;
+      if (written) {
         this.pending.persisted = true;
         return;
       }
@@ -482,7 +503,9 @@ export class ChatPublisher {
         }
       }
       this.stallAttempts += 1;
+      const readStartedAt = performance.now();
       const outcome = checked ? undefined : await this.checkSlot(pending);
+      pending.spent.preWriteReadMs += performance.now() - readStartedAt;
       if (outcome === 'blocked') {
         return;
       }
@@ -492,7 +515,9 @@ export class ChatPublisher {
       }
       if (outcome !== 'failed') {
         checked = true;
+        const writeStartedAt = performance.now();
         const write = await this.feed.writeSlot(pending.index, pending.bytes);
+        pending.spent.feedWriteMs += performance.now() - writeStartedAt;
         if (write.kind === 'written') {
           await this.confirm(pending);
           return;
@@ -544,8 +569,16 @@ export class ChatPublisher {
     this.lastActivityAt = this.lastPublishAt;
     this.lastError = null;
     this.failing = false;
+    const startedAt = performance.now();
     await this.writeCheckpoint();
+    pending.spent.checkpointWriteMs += performance.now() - startedAt;
+    this.publishTimings.record({ ...pending.spent, receivedToWrittenMs: Math.max(0, Date.now() - row.at) });
     void this.history.requestSave();
+  }
+
+  /** How long recent publishes spent in each stage, for /health's observations. */
+  publishTimingSummary(): PublishTimingSummary | null {
+    return this.publishTimings.summary();
   }
 
   /**
