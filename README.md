@@ -121,6 +121,18 @@ The server requires the following environment variables to be set:
 
 ---
 
+## 🧪 Live Test Bed
+
+`pnpm test:docker` runs the chat against real Bee nodes on a local test chain, so no real BZZ is spent. It needs a Docker daemon it can reach as a sibling container, which is how the verification job runs it.
+
+- **The cluster** is fdp-play's local chain and three full Bee nodes, made from fdp-play's own node images, whose keys that chain funded. The server listens on one node and writes through another.
+- **The scenarios** are B1 to B4: many senders at once, a server restart, a listening connection that dies without a close, and a malformed and a forged message. Each passes only when the chat feed holds every valid message exactly once, overwrites no slot and holds nothing else. Timings are printed and never asserted.
+- **Bee 2.8.2 is built from source here, not taken from the released image.** The bed builds Bee v2.8.2 at commit `7e703f49` with `REACHABILITY_OVERRIDE_PUBLIC=true`, the setting fdp-play uses for its own local clusters. A released Bee never counts itself reachable on a private network, so it never stores a chunk pushed to it and every push loops between the nodes until it gives up. The override is a value compiled into Bee, and no published image carries it. The source is pinned by commit and the Go image by digest, and the build fails on any other commit.
+- **Bee 2.6.0 runs as the released image**, the control that shows the failure a released binary has on a private network.
+- **What a run keeps:** every node's whole log, and each node's status, peer statuses and topology, go into `test-results/`, which git ignores.
+
+---
+
 ## 💡 Limitations & Potential Improvements
 
 This example serves as a basic illustration. For a more robust, production-ready aggregator, consider the following enhancements:

@@ -10,7 +10,7 @@ import { parseArgs } from 'node:util';
 
 import { Bee, Identifier } from '@ethersphere/bee-js';
 
-import { BEE_ROLES, Cluster, httpJson, removeLeftovers } from './cluster.mjs';
+import { BEE_ROLES, beeBuildNote, Cluster, httpJson, removeLeftovers } from './cluster.mjs';
 import { PayloadFormat, randomKey } from './payloads.mjs';
 import { SCENARIOS } from './scenarios.mjs';
 import { ServerKind, ServerProcess } from './server.mjs';
@@ -44,11 +44,12 @@ const log = (line) => console.log(`[bed] ${line}`);
 const observe = (line) => observations.push(line);
 
 const runId = randomBytes(4).toString('hex');
-const cluster = new Cluster({ beeVersion: args.bee, runId, log });
+const cluster = new Cluster({ beeVersion: args.bee, runId, log, observe });
 let server;
 const results = {};
 
 log(`run ${runId}: server ${args.server}, format ${args.format}, Bee ${args.bee}`);
+log(beeBuildNote(args.bee));
 log(`expected to fail: ${expectedFailures.size ? [...expectedFailures].join(', ') : 'none'}`);
 
 removeLeftovers();
@@ -132,6 +133,7 @@ if (expectedSeen.length) {
   for (const line of expectedSeen) console.log(`[bed]   ${line}`);
 }
 console.log('\n[bed] result');
+console.log(`[bed]   ${beeBuildNote(args.bee)}`);
 if (unexpected.length) for (const line of unexpected) console.log(`[bed]   ${line}`);
 else console.log(`[bed]   every scenario did what this run expected`);
 process.exit(unexpected.length ? 1 : 0);
