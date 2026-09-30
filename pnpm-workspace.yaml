@@ -8,6 +8,10 @@ saveExact: true
 minimumReleaseAge: 10080
 minimumReleaseAgeStrict: true
 
+# Our own packages, published by us, are exempt from the wait.
+minimumReleaseAgeExclude:
+  - '@solarpunkltd/swarm-chat-js'
+
 # The dependencies whose install scripts run, true, or are skipped, false. bufferutil and utf-8-validate are optional
 # ws accelerators, left off so the image needs no compiler.
 allowBuilds:
