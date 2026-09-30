@@ -27,7 +27,8 @@ describe('retries', () => {
   });
 
   test('a write that keeps failing stalls its slot and the queue behind it, and never gives the slot away', async () => {
-    const server = await rig.startServer();
+    // One slot in flight, so the second message waits in the queue behind the stuck one.
+    const server = await rig.startServer({ PUBLISH_WINDOW: '1' });
     rig.writer.faults.writeFailures = 1_000_000;
     await rig.send(message({ text: 'stuck' }));
     await rig.send(message({ text: 'behind it' }));
@@ -56,7 +57,7 @@ describe('retries', () => {
   });
 
   test('messages dropped past the queue limit are logged as dead letters with their ids', async () => {
-    const server = await rig.startServer({ QUEUE_LIMIT: '1' });
+    const server = await rig.startServer({ QUEUE_LIMIT: '1', PUBLISH_WINDOW: '1' });
     rig.writer.faults.writeFailures = 1_000_000;
     const first = message({ text: 'stuck' });
     const second = message({ text: 'queued' });
@@ -207,7 +208,7 @@ describe('shutdown', () => {
   });
 
   test('drops what is still queued at the deadline and counts it', async () => {
-    const server = await rig.startServer({ SHUTDOWN_DEADLINE_MS: '150' });
+    const server = await rig.startServer({ SHUTDOWN_DEADLINE_MS: '150', PUBLISH_WINDOW: '1' });
     rig.writer.faults.socWriteDelayMs = 400;
     for (let i = 0; i < 3; i++) {
       await rig.send(message({ text: `late ${i}` }));

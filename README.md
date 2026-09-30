@@ -52,16 +52,22 @@ over its life, about 20 MB at 300 messages and about 200 MB at 1,000, before red
 
 ### Restarts and one writer
 
-- **Checkpoints, written ahead.** Each chat has a small file in `CHECKPOINT_DIR`: the last slot that holds its
-  entry, the entry about to be written, the newest history link and the rows published after it. The entry is
-  recorded there before its slot is written, and the file is replaced atomically, written to a temporary file,
-  flushed to disk and renamed. A restart continues exactly where the checkpoint says and reads nothing from the
-  feed. A damaged checkpoint stops that chat on the health check and never starts it again at slot 0.
-- **One entry per slot, and a stall rather than a gap.** Only the recorded entry is ever written to its slot,
-  and it is resent unchanged, with a delay doubling up to 30 seconds, until one write succeeds, for as long as
-  that takes. New messages queue behind it, and past `QUEUE_LIMIT` they are dropped and logged as dead letters
-  with their ids. So a Bee that refuses writes pauses the chat instead of forking it or leaving a hole, and
-  `/health` names the stuck slot, how long it has been stuck and how many attempts it took.
+- **Checkpoints, written ahead.** Each chat has a small file in `CHECKPOINT_DIR`: the last slot confirmed in
+  order, the entries in flight with their exact bytes, the newest history link and the rows published after it.
+  An entry is recorded there before its slot is first written, and the file is replaced atomically, written to a
+  temporary file, flushed to disk and renamed. A restart continues exactly where the checkpoint says, resends
+  every entry in flight with its own bytes, and reads nothing else from the feed. A damaged checkpoint, including
+  a list of entries that does not run on slot by slot from the last confirmed one, stops that chat on the health
+  check and never starts it again at slot 0.
+- **Several slots in flight, confirmed in order.** Up to `PUBLISH_WINDOW` slots of one chat are written at once,
+  so a burst is not paced by one write at a time. Slots can land in any order, and a slot counts as confirmed
+  only once every slot before it has landed, so the checkpoint's last confirmed slot only ever moves forward over
+  slots that all hold their entries. A viewer may see a later slot a moment before an earlier one fills in.
+- **One entry per slot, and a stall rather than a gap.** Only a slot's recorded entry is ever written to it, and
+  it is resent unchanged, with a delay doubling up to 30 seconds, until one write succeeds, for as long as that
+  takes. Messages past the window queue behind it, and past `QUEUE_LIMIT` they are dropped and logged as dead
+  letters with their ids. So a Bee that refuses writes pauses the chat instead of forking it or leaving a hole,
+  and `/health` names the first stuck slot, how long it has been stuck and how many attempts it took.
 - **A chat without a checkpoint** asks Bee's head lookup and walks forward from there. A 404 from the lookup is
   not taken as a new chat on its own, because Bee answers 404 for a failed lookup too. A chat is new only when
   the lookup answered 404, slot 0 reads as absent twice `READ_RECHECK_MS` apart, the writing node answers ready
@@ -146,6 +152,7 @@ its name. A `.env` file in the working directory is read when it is there.
 | `RATE_PER_CHAT`          | `600`           | messages per window in one chat                                                                                                     |
 | `RATE_PER_SENDER`        | `30`            | messages per window from one sender in one chat                                                                                     |
 | `QUEUE_LIMIT`            | `500`           | messages waiting per chat, past which more are dropped                                                                              |
+| `PUBLISH_WINDOW`         | `8`             | how many slots of one chat may be in flight at once, each with its own entry, confirmed in slot order                               |
 | `RESUBSCRIBE_IDLE_MS`    | `180000`        | the silence after which the server resubscribes                                                                                     |
 | `HEARTBEAT_INTERVAL_MS`  | `60000`         | how often a heartbeat is sent                                                                                                       |
 | `HEARTBEAT_STALE_MS`     | `180000`        | how long without a frame or a heartbeat before health answers 503, over the interval                                                |

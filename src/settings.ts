@@ -61,6 +61,7 @@ const environmentShape = z.object({
   RATE_PER_CHAT: count(600),
   RATE_PER_SENDER: count(30),
   QUEUE_LIMIT: count(500),
+  PUBLISH_WINDOW: count(8),
   RESUBSCRIBE_IDLE_MS: milliseconds(3 * MINUTE),
   HEARTBEAT_INTERVAL_MS: milliseconds(MINUTE),
   HEARTBEAT_STALE_MS: milliseconds(3 * MINUTE),
@@ -111,6 +112,7 @@ export type Settings = {
   rates: { windowMs: number; perChat: number; perSender: number };
   chatIdleEvictMs: number;
   queueLimit: number;
+  publishWindow: number;
   resubscribeIdleMs: number;
   heartbeatIntervalMs: number;
   heartbeatStaleMs: number;
@@ -165,6 +167,7 @@ export function parseSettings(environment: Record<string, string | undefined>): 
     rates: { windowMs: env.RATE_WINDOW_MS, perChat: env.RATE_PER_CHAT, perSender: env.RATE_PER_SENDER },
     chatIdleEvictMs: env.CHAT_IDLE_EVICT_MS,
     queueLimit: env.QUEUE_LIMIT,
+    publishWindow: env.PUBLISH_WINDOW,
     resubscribeIdleMs: env.RESUBSCRIBE_IDLE_MS,
     heartbeatIntervalMs: env.HEARTBEAT_INTERVAL_MS,
     heartbeatStaleMs: env.HEARTBEAT_STALE_MS,
