@@ -105,8 +105,8 @@ that is written or never will be.
   either. A node that cannot reach its peers reads every chunk as absent, which is why the absent answer needs
   that proof. Any other outcome leaves the chat unpublished and retried later, and a chat that does start this way
   says so in its log and on `/health`.
-- **What these checks cost, and when.** They run only when a chat's first message arrives and the chat has no
-  checkpoint, which in normal operation means once in the chat's life. A restart or an evicted chat resumes from
+- **What these checks cost, and when.** They run only when a chat with no checkpoint is opened, at the start
+  for a chat in `CHAT_TOPICS` and on its first message for any other, which in normal operation means once in the chat's life. A restart or an evicted chat resumes from
   its checkpoint without them, and a message in a running chat pays no read at all. A fresh start waits out one `READ_RECHECK_MS`, 1 second by default, plus about eight Bee requests:
   measured at 1.07 to 1.09 seconds against the test suite's fake Bee, and on a real node plus however long that
   node takes to answer a lookup and a read for a chunk it does not have.
