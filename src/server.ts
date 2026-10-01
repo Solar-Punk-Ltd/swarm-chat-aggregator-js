@@ -249,6 +249,7 @@ export class AggregatorServer {
         settings.writeStamp,
         settings.readRecheckMs,
         settings.requestTimeoutMs,
+        settings.noteSlotMs,
       ),
       book,
       this.historyStore,
@@ -259,6 +260,7 @@ export class AggregatorServer {
         publishAttempts: settings.publishAttempts,
         retryBaseMs: settings.retryBaseMs,
         resumeRetryMs: settings.resumeRetryMs,
+        notes: { slotMs: settings.noteSlotMs, heartbeatMs: settings.noteHeartbeatMs },
       },
       this.stats,
       this.logger,
@@ -274,6 +276,7 @@ export class AggregatorServer {
             settings.writeStamp,
             settings.readRecheckMs,
             settings.crossCheckTimeoutMs,
+            settings.noteSlotMs,
           ),
         }),
     );
