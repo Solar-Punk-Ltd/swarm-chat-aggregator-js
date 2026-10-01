@@ -1,3 +1,4 @@
+import { DEFAULT_NOTE_HEARTBEAT_MS, DEFAULT_NOTE_SLOT_MS } from '@solarpunkltd/swarm-chat-js/message';
 import { z } from 'zod';
 
 import { MINUTE, SECOND } from './utils/constants.js';
@@ -83,6 +84,8 @@ const environmentShape = z.object({
   MIN_CONNECTED_PEERS: z.coerce.number().int().min(0).default(8),
   CROSS_CHECK_TIMEOUT_MS: milliseconds(10 * SECOND),
   CHECKPOINT_DIR: z.string().min(1).default('./checkpoints'),
+  NOTE_SLOT_MS: milliseconds(DEFAULT_NOTE_SLOT_MS),
+  NOTE_HEARTBEAT_MS: milliseconds(DEFAULT_NOTE_HEARTBEAT_MS),
   HEALTH_PORT: z.coerce.number().int().min(0).max(65_535).default(3000),
 });
 
@@ -100,6 +103,10 @@ const environmentSchema = environmentShape
   .refine((env) => env.LOCK_STALE_MS > 2 * env.LOCK_REFRESH_MS, {
     message: 'must be more than twice LOCK_REFRESH_MS',
     path: ['LOCK_STALE_MS'],
+  })
+  .refine((env) => env.NOTE_HEARTBEAT_MS >= env.NOTE_SLOT_MS, {
+    message: 'must be at least NOTE_SLOT_MS',
+    path: ['NOTE_HEARTBEAT_MS'],
   });
 
 export type Environment = z.input<typeof environmentSchema>;
@@ -135,6 +142,8 @@ export type Settings = {
   minConnectedPeers: number;
   crossCheckTimeoutMs: number;
   checkpointDir: string;
+  noteSlotMs: number;
+  noteHeartbeatMs: number;
   healthPort: number;
 };
 
@@ -191,6 +200,8 @@ export function parseSettings(environment: Record<string, string | undefined>): 
     minConnectedPeers: env.MIN_CONNECTED_PEERS,
     crossCheckTimeoutMs: env.CROSS_CHECK_TIMEOUT_MS,
     checkpointDir: env.CHECKPOINT_DIR,
+    noteSlotMs: env.NOTE_SLOT_MS,
+    noteHeartbeatMs: env.NOTE_HEARTBEAT_MS,
     healthPort: env.HEALTH_PORT,
   };
 }
