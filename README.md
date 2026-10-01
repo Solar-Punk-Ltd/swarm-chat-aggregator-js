@@ -20,6 +20,10 @@ Swarm, through a gateway or its own Bee node.
 4. **History.** Each chat keeps its current history file in memory and saves a new copy after each publish.
    Every feed entry links the newest saved file, so a viewer opening the chat reads that file plus the entries
    after it.
+5. **Slot notes.** Once a time slot of `NOTE_SLOT_MS` ends in which a message landed, and at least every
+   `NOTE_HEARTBEAT_MS` while a chat is active, the server writes a small note naming the chat's newest feed slot.
+   Viewers read only the notes of slots that are over and only the entries a note named, so nobody asks Bee for
+   an entry before it exists.
 
 ### The feed entry
 
@@ -51,6 +55,31 @@ What history costs grows with the square of the chat's length, because each save
 file again: with messages of about 400 bytes a chat of N messages uploads about 400 × N² / 2 bytes of history
 over its life, about 20 MB at 300 messages and about 200 MB at 1,000, before redundancy.
 
+### Slot notes
+
+Bee answers a request for a chunk it cannot find by skipping each peer it asked for that address for a minute.
+Viewers that asked for the next feed slot before it was written therefore made every new message about forty
+seconds late, measured on 2026-10-01: a chunk nobody asked for early was readable in 1.0 to 1.5 seconds, the
+same chunk after 20 seconds of asking took 40 to 42. Notes keep every read on Swarm and every read on an address
+that is written or never will be.
+
+- **The note.** Time slot `s` covers `[s * NOTE_SLOT_MS, (s + 1) * NOTE_SLOT_MS)` of Unix time. Its note is a
+  single owner chunk under the feed key at the identifier keccak256(`<topic>/note/<NOTE_SLOT_MS>/<s>`), holding
+  `{"v":1,"newest":<the newest confirmed feed slot>,"writtenAt":<the server's clock>}`. The library's message
+  module defines it, and this server imports it.
+- **When.** Once a slot ends, its note is written when a slot was confirmed since the last note written, or when
+  `NOTE_HEARTBEAT_MS` has passed since that note. Only confirmed slots are named, so an entry's write has finished
+  before any note names it.
+- **A failed note** is never written again at its address, where a viewer may already have been refused. The
+  next slot's note carries the same news, and so does every following slot's until one is written.
+- **Active** means the chat's publisher is loaded and ready, and not stopped, blocked or evicted. A chat in
+  `CHAT_TOPICS` is opened when the server starts, so it is active from then on and writes notes before any
+  message, `newest` -1 while it has none. A chat matched only by `CHAT_TOPIC_PATTERN` is opened by its first
+  message since the start, and until then its viewers find no note and follow it by polling.
+- **What it costs.** One chunk of the feed stamp per note. A quiet active chat writes one every
+  `NOTE_HEARTBEAT_MS`, 2,880 a day at the default, and a chat busy in every slot one every `NOTE_SLOT_MS`, at most
+  43,200 a day. `/health` gives each chat's notes written, failed, the last one's time and the last error.
+
 ### Restarts and one writer
 
 - **Checkpoints, written ahead.** Each chat has a small file in `CHECKPOINT_DIR`: the last slot confirmed in
@@ -76,19 +105,21 @@ over its life, about 20 MB at 300 messages and about 200 MB at 1,000, before red
   either. A node that cannot reach its peers reads every chunk as absent, which is why the absent answer needs
   that proof. Any other outcome leaves the chat unpublished and retried later, and a chat that does start this way
   says so in its log and on `/health`.
-- **What these checks cost, and when.** They run only when a chat's first message arrives and the chat has no
-  checkpoint, which in normal operation means once in the chat's life. A restart or an evicted chat resumes from
-  its checkpoint without them, and a message in a running chat pays one read of its slot before its write and
-  nothing more. A fresh start waits out one `READ_RECHECK_MS`, 1 second by default, plus about eight Bee requests:
+- **What these checks cost, and when.** They run only when a chat with no checkpoint is opened, at the start
+  for a chat in `CHAT_TOPICS` and on its first message for any other, which in normal operation means once in the chat's life. A restart or an evicted chat resumes from
+  its checkpoint without them, and a message in a running chat pays no read at all. A fresh start waits out one `READ_RECHECK_MS`, 1 second by default, plus about eight Bee requests:
   measured at 1.07 to 1.09 seconds against the test suite's fake Bee, and on a real node plus however long that
   node takes to answer a lookup and a read for a chunk it does not have.
 - **A slot is absent** only when two reads, `READ_RECHECK_MS` apart, both answer 404 or 500, since Bee answers a
   chunk it could not find either way depending on its version. Timeouts and gateway errors are failed reads,
   retried and never taken as absent. Only where absence decides where a chat starts is it read twice.
-- **Before writing a slot** the server reads it once. Absent means it writes. Its own bytes there mean an
-  earlier attempt landed. Anything else means the slot is taken, so the server stops publishing that chat and
-  says so on the health check. That is also what a checkpoint behind the feed meets, which the server stops at
-  rather than overwrite.
+- **Reading a slot before writing it** happens where it protects the feed: before the first writes after a
+  chat resumes, every entry the checkpoint held in flight included, until a slot is confirmed, and before every
+  attempt after a write that failed. Absent means it writes. Its own bytes there mean an earlier attempt landed.
+  Anything else means the slot is taken, so the server stops publishing that chat and says so on the health
+  check. That is what a checkpoint behind the feed meets, which the server stops at rather than overwrite. A
+  running chat writes its next slot without reading it, since a read of an address not yet written makes Bee
+  skip its peers for that address for a minute, and the lock keeps this server the feed's only writer.
 - **The lock.** On start the server locks `CHECKPOINT_DIR` with a lock file holding a random instance id,
   refreshed every `LOCK_REFRESH_MS`. A start waits while a live holder keeps it fresh and then refuses. A lock
   older than `LOCK_STALE_MS` is taken over, which is how a restart after a kill gets in.
@@ -110,7 +141,7 @@ each chat's state, next slot, queue depth, last publish and any stalled slot, an
 published and dropped messages by reason.
 
 Its `observations` block gives, per chat, the p50, p90 and maximum of each stage of its last 500 publishes: the
-read before the write, the two checkpoint writes, the feed write, and the whole time from receipt to the entry
+read before the write, zero in a running chat, the two checkpoint writes, the feed write, and the whole time from receipt to the entry
 landing. They are measured and reported, never asserted, and never change what the server does.
 
 After a restart, look at each chat's `historyLost`. It is the one thing that goes wrong without turning `/health`
@@ -171,6 +202,8 @@ its name. A `.env` file in the working directory is read when it is there.
 | `MIN_CONNECTED_PEERS`      | `8`             | connected peers the writing node needs before a chat with no checkpoint starts at slot 0, 1 on a two-node test cluster              |
 | `CROSS_CHECK_TIMEOUT_MS`   | `10000`         | the timeout of the second node's read of slot 0 for a chat with no checkpoint                                                       |
 | `CHECKPOINT_DIR`           | `./checkpoints` | where the checkpoints and the lock live, a volume in a container                                                                    |
+| `NOTE_SLOT_MS`             | `2000`          | the length of a slot note's time slot, part of every note's address, so viewers must use the same value                             |
+| `NOTE_HEARTBEAT_MS`        | `30000`         | the longest an active chat goes without a note, at least `NOTE_SLOT_MS`, which bounds what a lost note costs a viewer               |
 | `HEALTH_PORT`              | `3000`          | the port of `GET /health`                                                                                                           |
 
 Seven settings replace variables of the 6.x server, which are no longer read:

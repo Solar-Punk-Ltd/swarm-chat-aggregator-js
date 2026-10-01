@@ -1,4 +1,5 @@
 import { type Bee, BeeResponseError, FeedIndex, PrivateKey, Topic } from '@ethersphere/bee-js';
+import { noteIdentifier } from '@solarpunkltd/swarm-chat-js/message';
 
 import { sleep } from '../utils/sleep.js';
 
@@ -25,6 +26,8 @@ export interface ChatFeed {
   /** Bee's head lookup. Bee answers 404 for a failed lookup as well as for no update, so `none` proves nothing. */
   lookupHead(): Promise<HeadLookup>;
   writeSlot(index: number, payload: Uint8Array): Promise<SlotWrite>;
+  /** Writes time slot `slot`'s note, a single owner chunk under the feed key at the note's identifier. */
+  writeNote(slot: number, payload: Uint8Array): Promise<SlotWrite>;
 }
 
 /** The head lookup's 404, which Bee gives for a feed with no update and for a lookup that failed alike. */
@@ -64,6 +67,7 @@ export function slotReadFromError(error: unknown): SlotRead {
 }
 
 export class BeeChatFeed implements ChatFeed {
+  private readonly topicName: string;
   private readonly topic: Topic;
   private readonly signer: PrivateKey;
 
@@ -74,7 +78,9 @@ export class BeeChatFeed implements ChatFeed {
     private readonly stamp: string,
     private readonly recheckMs: number,
     private readonly timeoutMs: number,
+    private readonly noteSlotMs: number,
   ) {
+    this.topicName = topic;
     this.topic = Topic.fromString(topic);
     this.signer = new PrivateKey(feedKey);
   }
@@ -103,6 +109,18 @@ export class BeeChatFeed implements ChatFeed {
       const writer = this.bee.feed.makeWriter(this.topic, this.signer, this.requestOptions());
       // Never deferred: a deferred upload of the same address inside Bee's upload window is dropped.
       await writer.uploadPayload(this.stamp, payload, { index: slotIndex(index), deferred: false });
+      return { kind: 'written' };
+    } catch (error) {
+      return { kind: 'failed', error: describeError(error) };
+    }
+  }
+
+  async writeNote(slot: number, payload: Uint8Array): Promise<SlotWrite> {
+    try {
+      const identifier = noteIdentifier(this.topicName, this.noteSlotMs, slot);
+      await this.bee.soc
+        .makeWriter(this.signer, this.requestOptions())
+        .upload(this.stamp, identifier, payload, { deferred: false });
       return { kind: 'written' };
     } catch (error) {
       return { kind: 'failed', error: describeError(error) };
