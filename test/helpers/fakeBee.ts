@@ -25,6 +25,8 @@ export function feedSlotAddress(ownerHex: string, topic: Topic, index: number): 
 /** What every fake node shares: the chunks and data it stores, and who listens on which GSOC address. */
 export class FakeSwarm {
   readonly chunks = new Map<string, Uint8Array>();
+  /** When each chunk was last stored, by address. */
+  readonly storedAt = new Map<string, number>();
   readonly data = new Map<string, Uint8Array>();
   readonly nodes = new Set<FakeBeeNode>();
 
@@ -52,6 +54,11 @@ export class FakeSwarm {
     this.chunks.set(address, Buffer.concat([Buffer.alloc(32, 7), Buffer.alloc(65, 9), span, payload]));
   }
 
+  /** A chunk's payload, past its single owner chunk header and span. */
+  payloadAt(address: string): Uint8Array | undefined {
+    return this.chunks.get(address)?.slice(SOC_HEADER_BYTES + SPAN_BYTES);
+  }
+
   slotJson(ownerHex: string, topic: string, index: number): unknown {
     const payload = this.slotPayload(ownerHex, topic, index);
     return payload && JSON.parse(new TextDecoder().decode(payload));
@@ -74,6 +81,8 @@ type Faults = {
   socWriteDelayMs: number;
   /** Extra delay for writes to one chunk address, so a later slot can land before an earlier one. */
   slowWrites: Map<string, number>;
+  /** SOC writes to an address this answers true for are refused with a 500 and not stored. */
+  refuseWrite: ((address: string) => boolean) | undefined;
   /** Subscriptions stay open and silent, as behind a proxy that dropped the connection. */
   gsocDeaf: boolean;
   /** Requests to these paths never answer. */
@@ -97,6 +106,7 @@ export class FakeBeeNode {
     dataUploadDelayMs: 0,
     socWriteDelayMs: 0,
     slowWrites: new Map(),
+    refuseWrite: undefined,
     gsocDeaf: false,
     hang: undefined,
     ready: true,
@@ -104,6 +114,8 @@ export class FakeBeeNode {
     statusFailure: undefined,
   };
   readonly requests: string[] = [];
+  /** Every SOC write's chunk address, in the order the writes arrived, refused ones included. */
+  readonly socWriteAddresses: string[] = [];
   socWrites = 0;
   private readonly server: http.Server;
   private readonly sockets = new WebSocketServer({ noServer: true });
@@ -229,13 +241,18 @@ export class FakeBeeNode {
       }
       await delay(this.faults.socWriteDelayMs);
       const [, owner, identifier] = match;
-      await delay(this.faults.slowWrites.get(socAddress(identifier, owner)) ?? 0);
-      const signature = url.searchParams.get('sig') ?? '';
       const address = socAddress(identifier, owner);
+      this.socWriteAddresses.push(address);
+      if (this.faults.refuseWrite?.(address)) {
+        return send(500, { message: 'internal error' });
+      }
+      await delay(this.faults.slowWrites.get(address) ?? 0);
+      const signature = url.searchParams.get('sig') ?? '';
       this.swarm.chunks.set(
         address,
         Buffer.concat([Buffer.from(identifier, 'hex'), Buffer.from(signature, 'hex'), body]),
       );
+      this.swarm.storedAt.set(address, Date.now());
       this.socWrites += 1;
       this.swarm.deliver(address, body.slice(SPAN_BYTES), this);
       if (this.faults.writesLandThenFail > 0) {

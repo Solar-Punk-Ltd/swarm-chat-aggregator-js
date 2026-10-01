@@ -24,9 +24,13 @@ message format is made in the library first.
 
 ## Rules that keep the feed safe
 
-- Never write a feed slot without reading it first, and never overwrite a slot holding bytes this server
-  did not write. Where absence decides where a chat starts, a slot is absent only when two reads
-  `READ_RECHECK_MS` apart answer 404 or 500. The read before an ordinary write is one read.
+- Never overwrite a slot holding bytes this server did not write. A slot is read before it is written after a
+  resume, until a slot is confirmed, and before every attempt after a failed write. A running chat writes its
+  next slot without reading it, because a read of an address not yet written makes Bee skip its peers for that
+  address for a minute, which delayed every new message for its viewers. Where absence decides where a chat
+  starts, a slot is absent only when two reads `READ_RECHECK_MS` apart answer 404 or 500.
+- Slot notes come from the library's message module. A note names only confirmed slots, and a failed note is
+  never written again at its own address.
 - Never resume a chat from Bee's head lookup alone, and never start a chat at slot 0 unless the lookup
   and two reads of slot 0 all say it is empty. The checkpoint is the primary record.
 - The checkpoint records every entry in flight before its slot is first written, and each is the only entry

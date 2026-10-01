@@ -8,10 +8,13 @@ import {
   type ChatMessageDraft,
   type FeedEntry,
   type SignedChatMessage,
+  type SlotNote,
   createChatMessage,
   feedEntrySchema,
   historyFileSchema,
   historyRowSchema,
+  noteAddress,
+  parseSlotNote,
 } from '@solarpunkltd/swarm-chat-js/message';
 
 import type { HistoryLimits, UploadedHistoryFile } from '../../src/history.js';
@@ -106,6 +109,9 @@ export class Rig {
       CROSS_CHECK_TIMEOUT_MS: '500',
       CHECKPOINT_DIR: this.checkpointDir,
       HEALTH_PORT: '0',
+      // A day long, so no slot ends during a test that is not about notes and its writes stay its own.
+      NOTE_SLOT_MS: '86400000',
+      NOTE_HEARTBEAT_MS: '86400000',
       ...overrides,
     } as Environment;
   }
@@ -159,6 +165,28 @@ export class Rig {
   entry(index: number, topic = CHAT): FeedEntry | undefined {
     const value = this.swarm.slotJson(this.feedOwner, topic, index);
     return value === undefined ? undefined : feedEntrySchema.parse(value);
+  }
+
+  noteAddress(slot: number, slotMs: number, topic = CHAT): string {
+    return noteAddress(topic, slotMs, slot, this.feedOwner).toHex();
+  }
+
+  /** The note of time slot `slot`, read and checked as a viewer reads it, or undefined when there is none. */
+  note(slot: number, slotMs: number, topic = CHAT): SlotNote | undefined {
+    const payload = this.swarm.payloadAt(this.noteAddress(slot, slotMs, topic));
+    return payload === undefined ? undefined : (parseSlotNote(payload) ?? undefined);
+  }
+
+  /** Every note of the time slots from `fromMs` to `toMs`, oldest first. */
+  notes(fromMs: number, toMs: number, slotMs: number, topic = CHAT): { slot: number; note: SlotNote }[] {
+    const found: { slot: number; note: SlotNote }[] = [];
+    for (let slot = Math.floor(fromMs / slotMs); slot <= Math.floor(toMs / slotMs); slot++) {
+      const note = this.note(slot, slotMs, topic);
+      if (note) {
+        found.push({ slot, note });
+      }
+    }
+    return found;
   }
 
   /** A history file the server uploaded, checked against the library's file and row schemas. */
