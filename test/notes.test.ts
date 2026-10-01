@@ -21,6 +21,14 @@ afterEach(async () => {
 const slotAddress = (index: number) => feedSlotAddress(rig.feedOwner, Topic.fromString(CHAT), index);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Publishes one message with notes off and stops, so the next server resumes the chat from its checkpoint. */
+async function publishOneAndRestart(): Promise<void> {
+  const server = await rig.startServer();
+  await rig.send(message({ text: 'before the restart' }));
+  await waitFor(() => server.stats.published === 1, 5000, 'published');
+  await server.stop();
+}
+
 describe('slot notes', () => {
   test('once a slot ends in which a message landed, its note names the newest slot written', async () => {
     await rig.startServer(NOTES);
@@ -80,11 +88,28 @@ describe('slot notes', () => {
     }
   });
 
-  test('a chat that has not been opened since the start writes no notes', async () => {
+  test('a chat in CHAT_TOPICS writes notes from the start, before any message, so a viewer after a restart finds one', async () => {
+    await publishOneAndRestart();
+    const from = Date.now();
     await rig.startServer(NOTES);
+    await sleep(2 * HEARTBEAT_MS);
+    const notes = rig.notes(from, Date.now(), SLOT_MS);
+    expect(notes.length).toBeGreaterThanOrEqual(2);
+    expect(notes.every(({ note }) => note.newest === 0)).toBe(true);
+  });
+
+  test('a chat in CHAT_TOPICS that has never had a message says so in its notes, newest -1', async () => {
+    const from = Date.now();
+    await rig.startServer(NOTES);
+    await waitFor(() => rig.notes(from, Date.now(), SLOT_MS).length > 0, 5000, 'a note');
+    expect(rig.notes(from, Date.now(), SLOT_MS)[0]?.note.newest).toBe(-1);
+  });
+
+  test('a chat matched only by the pattern writes no notes until a message opens it', async () => {
+    await rig.startServer({ ...NOTES, CHAT_TOPICS: '' });
     const from = Date.now();
     await sleep(3 * HEARTBEAT_MS);
-    expect(rig.notes(from, Date.now(), SLOT_MS)).toEqual([]);
+    expect(rig.notes(from, Date.now(), SLOT_MS, 'chat-pattern-1')).toEqual([]);
     expect(rig.writer.socWriteAddresses).toEqual([]);
   });
 
