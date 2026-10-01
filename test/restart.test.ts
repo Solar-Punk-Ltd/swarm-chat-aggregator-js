@@ -393,7 +393,7 @@ describe('one writer', () => {
     expect(rig.entry(2)).toBeUndefined();
   });
 
-  test('reads the slot before writing it and stops when another writer took it while running', async () => {
+  test('stops when another writer took the slot while running and the write to it failed', async () => {
     const server = await rig.startServer();
     await rig.send(message({ text: 'first' }));
     await waitFor(() => server.stats.published === 1, 5000, 'first');
@@ -401,6 +401,9 @@ describe('one writer', () => {
     await intruder.uploadPayload(rig.stamp, new TextEncoder().encode('{"someone":"else"}'), {
       index: FeedIndex.fromBigInt(1n),
     });
+    // A running chat writes without reading first, so another writer is met through the read after a failed write.
+    const taken = feedSlotAddress(rig.feedOwner, Topic.fromString(CHAT), 1);
+    rig.writer.faults.refuseWrite = (address) => address === taken;
     await rig.send(message({ text: 'second' }));
     await waitFor(() => server.healthReport().chats[0]?.state === 'blocked', 5000, 'blocked');
     expect(rig.swarm.slotJson(rig.feedOwner, CHAT, 1)).toEqual({ someone: 'else' });
@@ -414,11 +417,13 @@ describe('one writer', () => {
     expect(server.healthReport().problems.join(' ')).toContain('slot 1');
   });
 
-  test('stops a chat when the slot it is about to write turns out to hold an unreadable chunk', async () => {
+  test('stops a chat when a slot whose write failed turns out to hold an unreadable chunk', async () => {
     const server = await rig.startServer();
     await rig.send(message({ text: 'first' }));
     await waitFor(() => server.stats.published === 1, 5000, 'first');
     rig.swarm.corruptSlot(rig.feedOwner, CHAT, 1);
+    const corrupt = feedSlotAddress(rig.feedOwner, Topic.fromString(CHAT), 1);
+    rig.writer.faults.refuseWrite = (address) => address === corrupt;
     await rig.send(message({ text: 'second' }));
     await waitFor(() => server.healthReport().chats[0]?.state === 'blocked', 5000, 'blocked');
     expect(server.stats.dropped.get('chat-blocked')).toBe(1);
