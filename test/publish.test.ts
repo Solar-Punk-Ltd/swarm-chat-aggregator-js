@@ -150,7 +150,8 @@ describe('the active chat cap', () => {
     const server = await rig.startServer({ MAX_ACTIVE_CHATS: '1', CHAT_IDLE_EVICT_MS: '200' });
     rig.writer.faults.writeFailures = 1_000_000;
     await rig.send(message({ topic: 'chat-pattern-1', text: 'stuck' }));
-    await waitFor(() => server.healthReport().chats[0]?.stall !== null, 5000, 'the stall');
+    const stuck = () => server.healthReport().chats.find((chat) => chat.topic === 'chat-pattern-1');
+    await waitFor(() => (stuck()?.stall ?? null) !== null, 5000, 'the stall');
     await new Promise((resolve) => setTimeout(resolve, 300));
     await rig.send(message({ topic: 'chat-pattern-2' }));
     await waitFor(() => server.stats.dropped.get('chat-limit') === 1, 5000, 'the refusal');
