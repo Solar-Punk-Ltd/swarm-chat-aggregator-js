@@ -125,6 +125,10 @@ export class AggregatorServer {
     this.health = http.createServer((request, response) => this.answerHealth(request, response));
     await new Promise<void>((resolve) => this.health?.listen(this.settings.healthPort, resolve));
     this.listener.start();
+    // A listed chat is opened at once rather than on its first message, so its viewers find a note from the start.
+    for (const topic of this.settings.allowedChats.topics) {
+      this.chatFor(topic);
+    }
     this.pruneTimer = setInterval(() => this.intake.prune(), PRUNE_INTERVAL_MS);
     this.pruneTimer.unref();
     this.logger.info(`[server] started, health on port ${this.healthPort}, lock instance ${this.lock.instance}`);

@@ -72,9 +72,10 @@ that is written or never will be.
   before any note names it.
 - **A failed note** is never written again at its address, where a viewer may already have been refused. The
   next slot's note carries the same news, and so does every following slot's until one is written.
-- **Active** means the chat's publisher is loaded and ready: it has taken a message since this server started,
-  or resumed for one, and has not been stopped, blocked or evicted. A chat no message has reached since the start
-  writes no notes, and its viewers follow it by polling until its first message.
+- **Active** means the chat's publisher is loaded and ready, and not stopped, blocked or evicted. A chat in
+  `CHAT_TOPICS` is opened when the server starts, so it is active from then on and writes notes before any
+  message, `newest` -1 while it has none. A chat matched only by `CHAT_TOPIC_PATTERN` is opened by its first
+  message since the start, and until then its viewers find no note and follow it by polling.
 - **What it costs.** One chunk of the feed stamp per note. A quiet active chat writes one every
   `NOTE_HEARTBEAT_MS`, 2,880 a day at the default, and a chat busy in every slot one every `NOTE_SLOT_MS`, at most
   43,200 a day. `/health` gives each chat's notes written, failed, the last one's time and the last error.
