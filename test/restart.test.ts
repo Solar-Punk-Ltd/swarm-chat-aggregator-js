@@ -307,13 +307,17 @@ describe('write-ahead checkpoint', () => {
 
   test('a restart after a write that landed, before its checkpoint caught up, resends the same bytes once', async () => {
     const server = await rig.startServer({ SHUTDOWN_DEADLINE_MS: '200' });
+    const slot0 = feedSlotAddress(rig.feedOwner, Topic.fromString(CHAT), 0);
     rig.writer.faults.writesLandThenFail = 1_000_000;
+    // The read after each failed write misses the slot too, so this server never learns that the write landed.
+    rig.writer.faults.chunkMisses.set(slot0, 1_000_000);
     await rig.send(message({ text: 'landed' }));
     await waitFor(() => rig.swarm.slotPayload(rig.feedOwner, CHAT, 0) !== undefined, 5000, 'the write landing');
     const landed = rig.swarm.slotPayload(rig.feedOwner, CHAT, 0);
     await server.stop();
 
     rig.writer.faults.writesLandThenFail = 0;
+    rig.writer.faults.chunkMisses.delete(slot0);
     const restarted = await rig.startServer();
     await rig.send(message({ text: 'next' }));
     await waitFor(() => restarted.stats.published === 2, 5000, 'both published');

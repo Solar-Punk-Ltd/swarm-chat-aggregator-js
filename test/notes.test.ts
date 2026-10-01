@@ -57,7 +57,8 @@ describe('slot notes', () => {
     expect(notes.length).toBeGreaterThanOrEqual(3);
     expect(notes.every(({ note }) => note.newest === 0)).toBe(true);
     const gaps = notes.slice(1).map(({ note }, i) => note.writtenAt - notes[i]!.note.writtenAt);
-    expect(Math.max(...gaps)).toBeLessThanOrEqual(HEARTBEAT_MS + SLOT_MS);
+    // A heartbeat falls due between two slot ends and waits for the next, plus however late its timer fires.
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(HEARTBEAT_MS + SLOT_MS + 50);
   });
 
   test('a note write that fails is not retried at its address, and the next slot carries the news', async () => {
