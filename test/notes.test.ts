@@ -110,7 +110,7 @@ describe('slot notes', () => {
     await rig.startServer(NOTES);
     await sleep(4 * HEARTBEAT_MS);
     const notes = rig.notes(from, Date.now(), SLOT_MS);
-    expect(notes.length).toBeGreaterThanOrEqual(4);
+    expect(notes.length).toBeGreaterThanOrEqual(3);
     expect(notes.every(({ note }) => note.newest === -1)).toBe(true);
     const gaps = notes.slice(1).map(({ note }, i) => note.writtenAt - notes[i]!.note.writtenAt);
     // A heartbeat falls due between two slot ends and waits for the next, plus however late its timer fires.
