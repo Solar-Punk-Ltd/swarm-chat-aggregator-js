@@ -105,6 +105,19 @@ describe('slot notes', () => {
     expect(rig.notes(from, Date.now(), SLOT_MS)[0]?.note.newest).toBe(-1);
   });
 
+  test('a chat in CHAT_TOPICS that has never had a message keeps writing a heartbeat note naming -1', async () => {
+    const from = Date.now();
+    await rig.startServer(NOTES);
+    await sleep(4 * HEARTBEAT_MS);
+    const notes = rig.notes(from, Date.now(), SLOT_MS);
+    expect(notes.length).toBeGreaterThanOrEqual(3);
+    expect(notes.every(({ note }) => note.newest === -1)).toBe(true);
+    const gaps = notes.slice(1).map(({ note }, i) => note.writtenAt - notes[i]!.note.writtenAt);
+    // A heartbeat falls due between two slot ends and waits for the next, plus however late its timer fires.
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(HEARTBEAT_MS + SLOT_MS + 50);
+    expect(rig.entry(0)).toBeUndefined();
+  });
+
   test('a chat matched only by the pattern writes no notes until a message opens it', async () => {
     await rig.startServer({ ...NOTES, CHAT_TOPICS: '' });
     const from = Date.now();
