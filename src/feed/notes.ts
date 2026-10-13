@@ -12,7 +12,10 @@ export type NoteHealth = {
   lastError: string | null;
 };
 
-/** The newest slot no note has named yet, apart from a chat that has had no note at all. */
+/**
+ * Below the -1 a note names for a chat with no message yet, so the first note after a start is written at once, and an
+ * empty chat then goes on writing a heartbeat note naming -1.
+ */
 const NOTHING_NAMED = -2;
 
 /**
