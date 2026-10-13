@@ -13,8 +13,8 @@ export type NoteHealth = {
 };
 
 /**
- * Below the -1 a note names for a chat with no message yet, so the first note after a start is written at once, and an
- * empty chat then goes on writing a heartbeat note naming -1.
+ * Below any slot a note can name, the -1 of a chat with no message yet included. The first note after a start is
+ * written at once because no note has been written yet, and an empty chat's later notes naming -1 are heartbeats.
  */
 const NOTHING_NAMED = -2;
 
