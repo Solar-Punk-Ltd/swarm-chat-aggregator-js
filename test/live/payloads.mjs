@@ -7,8 +7,13 @@ import { createChatMessage, encodeChatMessage, parseChatMessage } from '@solarpu
 
 export const PayloadFormat = { V6: 'v6', V8: 'v8' };
 
-/** The library's own wire check, for the bed's tests. */
-export { parseChatMessage };
+/** The site the bed's server is configured for. Its senders send as guests, so no binding is checked against it. */
+export const SITE_ORIGIN = 'https://chat.example.com';
+
+/** The library's own wire check as the bed's server runs it, for the bed's tests. */
+export function parsePayload(bytes) {
+  return parseChatMessage(bytes, { origin: SITE_ORIGIN });
+}
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
