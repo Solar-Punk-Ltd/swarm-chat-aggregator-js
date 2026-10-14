@@ -2,7 +2,7 @@
 // holds at the end: every valid message exactly once, no slot overwritten, nothing else published.
 import { FeedFollower } from './feed.mjs';
 import { describeVerdict, isClean } from './ledger.mjs';
-import { payloadsFor, randomKey } from './payloads.mjs';
+import { payloads, randomKey } from './payloads.mjs';
 import { describeSendError, GsocSender, SendOutcome } from './sender.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -15,7 +15,6 @@ const FOLLOW_INTERVAL_MS = 1000;
  * @typedef {object} BedContext
  * @property {import('./cluster.mjs').Cluster} cluster
  * @property {import('./server.mjs').ServerProcess} server
- * @property {string} format
  * @property {string} runId
  * @property {string} senderStamp
  * @property {import('@ethersphere/bee-js').PrivateKey} gsocKey
@@ -32,12 +31,10 @@ class Chat {
   constructor(ctx, scenario) {
     this.ctx = ctx;
     this.topic = `chat-bed-${scenario.toLowerCase()}-${ctx.runId}`;
-    this.payloads = payloadsFor(ctx.format);
     this.follower = new FeedFollower({
       beeUrl: ctx.cluster.url('worker'),
       owner: ctx.feedOwner,
       topic: this.topic,
-      format: ctx.format,
     });
     this.expectedIds = [];
     this.outcomes = [];
@@ -90,16 +87,14 @@ class Chat {
       stamp: this.ctx.senderStamp,
       gsocKey: this.ctx.gsocKey,
       gsocIdentifier: this.ctx.gsocIdentifier,
-      format: this.ctx.format,
       resendIntervalMs: this.ctx.resend.intervalMs,
       resendAttempts: this.ctx.resend.attempts,
       isPublished: async (id) => this.follower.ledger.has(id),
     });
     this.senders.push(sender);
-    let index = 0;
     return {
       say: async (text) => {
-        const payload = this.payloads.build({ key, topic: this.topic, text, name, index: index++ });
+        const payload = payloads.build({ key, topic: this.topic, text, name });
         this.expectedIds.push(payload.id);
         this.firstSentAt ??= Date.now();
         const outcome = await this.attempt(() => sender.send(payload));
@@ -107,10 +102,8 @@ class Chat {
         return outcome;
       },
       sendForged: (text) =>
-        this.attempt(() =>
-          sender.sendOnce(this.payloads.forge({ key, topic: this.topic, text, name, index: index++ }).bytes),
-        ),
-      sendMalformed: () => this.attempt(() => sender.sendOnce(this.payloads.malformed(this.topic))),
+        this.attempt(() => sender.sendOnce(payloads.forge({ key, topic: this.topic, text, name }).bytes)),
+      sendMalformed: () => this.attempt(() => sender.sendOnce(payloads.malformed(this.topic))),
     };
   }
 
