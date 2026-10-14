@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 
 import { WaitAbandoned, waitFor } from './cluster.mjs';
 import { FeedFollower } from './feed.mjs';
-import { describeSendToFeed, FeedLedger, isClean } from './ledger.mjs';
+import { describeSendToFeed, FeedLedger, isClean, judgeScenario } from './ledger.mjs';
 import { parsePayload, payloads, randomKey } from './payloads.mjs';
 import { describeSendError, GsocSender, SendOutcome } from './sender.mjs';
 
@@ -46,6 +46,59 @@ function sender(messaging, isPublished) {
     isPublished,
   });
 }
+
+void describe('judgeScenario', () => {
+  const WINDOW_MS = 60_000;
+
+  void it('passes and reports a sender that gave up on a message that landed', () => {
+    const ledger = new FeedLedger();
+    ledger.record(0, 'a', 1000);
+    ledger.record(1, 'b', 71_000);
+    const gaveUpSentAt = new Map([['b', 1000]]);
+    const judged = judgeScenario({ ledger, expectedIds: ['a', 'b'], gaveUpSentAt, windowMs: WINDOW_MS });
+    assert.deepEqual(judged.problems, []);
+    assert.equal(judged.reports.length, 1);
+    assert.match(
+      judged.reports[0],
+      /^1 senders gave up before their message landed, it landed 10000 ms past the window/,
+    );
+    assert.match(judged.reports[0], /smallest margin to the 60000 ms sender window -10000 ms, 1 past it/);
+  });
+
+  void it('fails a message that never landed, whether or not its sender gave up', () => {
+    const ledger = new FeedLedger();
+    ledger.record(0, 'a', 1000);
+    const gaveUpSentAt = new Map([['b', 1000]]);
+    const judged = judgeScenario({ ledger, expectedIds: ['a', 'b'], gaveUpSentAt, windowMs: WINDOW_MS });
+    assert.deepEqual(judged.problems, ['1 missing']);
+    assert.deepEqual(judged.reports, []);
+  });
+
+  void it('fails a duplicate even when the sender gave up', () => {
+    const ledger = new FeedLedger();
+    ledger.record(0, 'a', 1000);
+    ledger.record(1, 'a', 2000);
+    const gaveUpSentAt = new Map([['a', 0]]);
+    const judged = judgeScenario({ ledger, expectedIds: ['a'], gaveUpSentAt, windowMs: WINDOW_MS });
+    assert.deepEqual(judged.problems, ['1 in more than one slot']);
+  });
+
+  void it('fails an overwritten slot', () => {
+    const ledger = new FeedLedger();
+    ledger.record(0, 'a', 1000);
+    ledger.record(0, 'b', 2000);
+    const judged = judgeScenario({ ledger, expectedIds: ['a', 'b'], gaveUpSentAt: new Map(), windowMs: WINDOW_MS });
+    assert.equal(judged.problems.length, 1);
+    assert.match(judged.problems[0], /slots overwritten \(0\)/);
+  });
+
+  void it('passes with nothing to report when nobody gave up', () => {
+    const ledger = new FeedLedger();
+    ledger.record(0, 'a', 1000);
+    const judged = judgeScenario({ ledger, expectedIds: ['a'], gaveUpSentAt: new Map(), windowMs: WINDOW_MS });
+    assert.deepEqual(judged, { problems: [], reports: [] });
+  });
+});
 
 void describe('FeedLedger', () => {
   void it('passes a feed holding every message once', () => {
