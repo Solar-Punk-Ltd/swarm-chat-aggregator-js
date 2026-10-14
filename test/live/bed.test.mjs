@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 
 import { WaitAbandoned, waitFor } from './cluster.mjs';
 import { FeedFollower } from './feed.mjs';
-import { FeedLedger, isClean } from './ledger.mjs';
+import { describeSendToFeed, FeedLedger, isClean } from './ledger.mjs';
 import { parsePayload, payloads, randomKey } from './payloads.mjs';
 import { describeSendError, GsocSender, SendOutcome } from './sender.mjs';
 
@@ -60,6 +60,27 @@ describe('FeedLedger', () => {
     ledger.record(0, 'a', 9000);
     assert.equal(ledger.lastAppearedAt(['a', 'b']), 3000);
     assert.equal(ledger.lastAppearedAt(['a', 'b', 'c']), null);
+  });
+
+  it("spreads each message's first send to the feed and names its smallest margin to the senders' window", () => {
+    const ledger = new FeedLedger();
+    ledger.record(0, 'a', 11_000);
+    ledger.record(1, 'b', 40_000);
+    ledger.record(2, 'c', 62_000);
+    const firstSentAt = new Map([
+      ['a', 1000],
+      ['b', 2000],
+      ['c', 3000],
+    ]);
+    assert.equal(
+      describeSendToFeed(firstSentAt, ledger, 60_000),
+      'first send to feed per message p50 38000 p90 59000 max 59000 ms, smallest margin to the 60000 ms sender window 1000 ms, 0 past it',
+    );
+    firstSentAt.set('d', 4000);
+    assert.equal(
+      describeSendToFeed(firstSentAt, ledger, 50_000),
+      'first send to feed per message p50 38000 p90 59000 max 59000 ms, smallest margin to the 50000 ms sender window -9000 ms, 1 past it, 1 never appeared',
+    );
   });
 
   it('names what is missing, duplicated, overwritten and foreign', () => {

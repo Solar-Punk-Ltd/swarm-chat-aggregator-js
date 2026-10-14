@@ -1,7 +1,7 @@
 // B1 to B4. Each runs in a chat topic of its own on one cluster and one server, and passes only on what the feed
 // holds at the end: every valid message exactly once, no slot overwritten, nothing else published.
 import { FeedFollower } from './feed.mjs';
-import { describeVerdict, isClean } from './ledger.mjs';
+import { describeSendToFeed, describeVerdict, isClean } from './ledger.mjs';
 import { payloads, randomKey } from './payloads.mjs';
 import { describeSendError, GsocSender, SendOutcome } from './sender.mjs';
 
@@ -37,6 +37,7 @@ class Chat {
       topic: this.topic,
     });
     this.expectedIds = [];
+    this.sentAtById = new Map();
     this.outcomes = [];
     /** Writes the node refused, by what it said, so a refusal fails the scenario rather than the bed. */
     this.refusals = new Map();
@@ -96,6 +97,7 @@ class Chat {
       say: async (text) => {
         const payload = payloads.build({ key, topic: this.topic, text, name });
         this.expectedIds.push(payload.id);
+        this.sentAtById.set(payload.id, Date.now());
         this.firstSentAt ??= Date.now();
         const outcome = await this.attempt(() => sender.send(payload));
         this.outcomes.push(outcome);
@@ -139,6 +141,8 @@ class Chat {
           ? 'not reached, some messages never appeared'
           : `${lastAppearedAt - this.firstSentAt} ms, to the feed follower's 1 s poll`),
     );
+    const senderWindowMs = this.ctx.resend.intervalMs * (this.ctx.resend.attempts + 1);
+    this.ctx.observe(`${this.topic}: ${describeSendToFeed(this.sentAtById, this.follower.ledger, senderWindowMs)}`);
     this.ctx.observe(`${this.topic}: ${await this.publishTimings()}`);
     const problems = [];
     if (!isClean(verdict)) problems.push(describeVerdict(verdict));
