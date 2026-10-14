@@ -17,7 +17,8 @@ import { CHAT } from './harness.js';
 
 /**
  * Swarm ID chat bindings made by the Swarm ID fork for its test account, copied from the library's
- * `test/bindingVectors.ts` at 83a2785, made on the fork's `feat/site-chat-key` branch. Making one here would need EIP-191 personal_sign, which bee-js does not offer.
+ * `test/bindingVectors.ts` as released in 8.0.0 (ecfadff). Making one here would need EIP-191 personal_sign, which
+ * bee-js does not offer.
  */
 
 // Test only. The fork's account key, which nobody holds funds with.
