@@ -1,7 +1,8 @@
 // B1 to B4. Each runs in a chat topic of its own on one cluster and one server, and passes only on what the feed
-// holds at the end: every valid message exactly once, no slot overwritten, nothing else published.
+// holds at the end: every valid message exactly once, no slot overwritten, nothing else published. A sender that gave
+// up on a message that still landed is reported, not failed.
 import { FeedFollower } from './feed.mjs';
-import { describeSendToFeed, describeVerdict, isClean } from './ledger.mjs';
+import { describeSendToFeed, describeVerdict, judgeScenario } from './ledger.mjs';
 import { payloads, randomKey } from './payloads.mjs';
 import { describeSendError, GsocSender, SendOutcome } from './sender.mjs';
 
@@ -38,7 +39,7 @@ class Chat {
     });
     this.expectedIds = [];
     this.sentAtById = new Map();
-    this.outcomes = [];
+    this.gaveUpSentAt = new Map();
     /** Writes the node refused, by what it said, so a refusal fails the scenario rather than the bed. */
     this.refusals = new Map();
     this.senders = [];
@@ -100,7 +101,7 @@ class Chat {
         this.sentAtById.set(payload.id, Date.now());
         this.firstSentAt ??= Date.now();
         const outcome = await this.attempt(() => sender.send(payload));
-        this.outcomes.push(outcome);
+        if (outcome === SendOutcome.FAILED) this.gaveUpSentAt.set(payload.id, this.sentAtById.get(payload.id));
         return outcome;
       },
       sendForged: (text) =>
@@ -119,7 +120,6 @@ class Chat {
     await this.follower.rereadAll();
 
     const verdict = this.follower.ledger.verdict(this.expectedIds);
-    const failedSends = this.outcomes.filter((o) => o === SendOutcome.FAILED).length;
     const writes = this.senders.reduce((sum, s) => sum + s.writes, 0);
     for (const sender of this.senders) {
       for (const line of sender.writeErrors ?? []) this.refusals.set(line, (this.refusals.get(line) ?? 0) + 1);
@@ -144,11 +144,19 @@ class Chat {
     const senderWindowMs = this.ctx.resend.intervalMs * (this.ctx.resend.attempts + 1);
     this.ctx.observe(`${this.topic}: ${describeSendToFeed(this.sentAtById, this.follower.ledger, senderWindowMs)}`);
     this.ctx.observe(`${this.topic}: ${await this.publishTimings()}`);
-    const problems = [];
-    if (!isClean(verdict)) problems.push(describeVerdict(verdict));
-    if (failedSends) problems.push(`${failedSends} sends gave up unconfirmed`);
+    const { problems, reports } = judgeScenario({
+      ledger: this.follower.ledger,
+      expectedIds: this.expectedIds,
+      gaveUpSentAt: this.gaveUpSentAt,
+      windowMs: senderWindowMs,
+    });
+    for (const line of reports) this.ctx.observe(`${this.topic}: ${line}`);
     for (const [line, count] of this.refusals) problems.push(`${count} writes refused by the node: ${line}`);
-    return { passed: problems.length === 0, detail: problems.join('; ') || describeVerdict(verdict), verdict };
+    return {
+      passed: problems.length === 0,
+      detail: problems.join('; ') || [describeVerdict(verdict), ...reports].join('; '),
+      verdict,
+    };
   }
 }
 
