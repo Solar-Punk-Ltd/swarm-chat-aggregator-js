@@ -45,6 +45,12 @@ const topicPattern = z
 
 const LOCAL_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
 
+/**
+ * The hosts the library's binding check accepts on https, DNS labels in punycode joined by single dots. A host outside
+ * it, with an underscore, a trailing dot or in IPv6 brackets, could never match a binding.
+ */
+const BINDING_HOST_PATTERN = /^[a-z0-9-]+(\.[a-z0-9-]+)*$/;
+
 /** Whether `origin` is an http origin on this machine, the only plain-http site a Swarm ID binding may name. */
 export function isLocalHttpOrigin(origin: string): boolean {
   const url = new URL(origin);
@@ -67,6 +73,13 @@ const siteOrigin = z
       context.addIssue({
         code: 'custom',
         message: 'expected https:// and a host with no path, or http:// on localhost for development',
+      });
+      return z.NEVER;
+    }
+    if (url.protocol === 'https:' && !BINDING_HOST_PATTERN.test(url.hostname)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'the host must be DNS names joined by single dots, as a Swarm ID binding names a site',
       });
       return z.NEVER;
     }
