@@ -6,10 +6,8 @@ import { join, resolve } from 'node:path';
 import { WaitAbandoned, waitFor } from './cluster.mjs';
 import { SITE_ORIGIN } from './payloads.mjs';
 
-export const ServerKind = { MASTER: 'master', EVENT: 'event' };
-
 /**
- * What the bed hands a server, named once for both servers.
+ * What the bed hands a server, named once.
  * @typedef {object} ServerSettings
  * @property {string} listenUrl the node the server subscribes on
  * @property {string} writeUrl the node its feed and history writes go through
@@ -22,18 +20,9 @@ export const ServerKind = { MASTER: 'master', EVENT: 'event' };
  * @property {number} port
  */
 
-/** The environment each server reads. The event server's names and the bed's intervals come from sp-hls3. */
-const ENVIRONMENT = {
-  [ServerKind.MASTER]: (s) => ({
-    GSOC_BEE_URL: s.listenUrl,
-    GSOC_RESOURCE_ID: s.gsocKey,
-    GSOC_TOPIC: s.gsocIdentifier,
-    CHAT_BEE_URL: s.writeUrl,
-    CHAT_KEY: s.feedKey,
-    CHAT_STAMP: s.writeStamp,
-    PORT: String(s.port),
-  }),
-  [ServerKind.EVENT]: (s, checkpointDir) => ({
+/** The environment the server reads. Its names and the bed's intervals come from sp-hls3. */
+function environment(s, checkpointDir) {
+  return {
     LISTEN_BEE_URL: s.listenUrl,
     WRITE_BEE_URL: s.writeUrl,
     HEARTBEAT_BEE_URL: s.writeUrl,
@@ -55,17 +44,15 @@ const ENVIRONMENT = {
     // Empty on every run and kept across B2's restart, since the server refuses a folder of an older checkpoint
     // format as damaged.
     CHECKPOINT_DIR: checkpointDir,
-  }),
-};
+  };
+}
 
 /**
  * The server as a child process of the bed, so its checkpoint folder is on the bed's own filesystem and a restart
- * is a process restart. It runs in a folder of its own with no .env in it, since both servers read one when present.
+ * is a process restart. It runs in a folder of its own with no .env in it, since the server reads one when present.
  */
 export class ServerProcess {
-  constructor({ kind, settings, log }) {
-    if (!ENVIRONMENT[kind]) throw new Error(`unknown server kind ${kind}, expected master or event`);
-    this.kind = kind;
+  constructor({ settings, log }) {
     this.settings = settings;
     this.log = log;
     this.workdir = mkdtempSync(join(tmpdir(), 'swarm-chat-server-'));
@@ -79,7 +66,7 @@ export class ServerProcess {
     const env = {
       PATH: process.env.PATH,
       NODE_ENV: 'test',
-      ...ENVIRONMENT[this.kind](this.settings, join(this.workdir, 'checkpoints')),
+      ...environment(this.settings, join(this.workdir, 'checkpoints')),
     };
     this.child = spawn(process.execPath, [entry], { cwd: this.workdir, env, stdio: ['ignore', 'pipe', 'pipe'] });
     this.child.stdout.pipe(this.logStream, { end: false });
@@ -102,7 +89,7 @@ export class ServerProcess {
       },
       { timeoutMs: 60_000, intervalMs: 500 },
     );
-    this.log(`server (${this.kind}) started, pid ${this.child.pid}`);
+    this.log(`server started, pid ${this.child.pid}`);
   }
 
   /** The server's /health body, whatever its status, or null when it answers something other than JSON. */
