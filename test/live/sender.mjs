@@ -22,7 +22,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Writes payloads to the chat's GSOC address as a browser does, never deferred. A v6 sender behaves like library
- * 6.2.8 and never checks the feed. A v7 sender behaves like 7.0: the message stays pending until it is read back
+ * 6.2.8 and never checks the feed. A v8 sender behaves like 8.0: the message stays pending until it is read back
  * from the feed, and the identical bytes are sent again every `resendIntervalMs`, at most `resendAttempts` times.
  */
 export class GsocSender {
@@ -84,7 +84,7 @@ export class GsocSender {
     }
   }
 
-  /** A failed write of a pending v7 message is covered by the next resend, as a failed delivery is. */
+  /** A failed write of a pending v8 message is covered by the next resend, as a failed delivery is. */
   async writeTolerated(bytes) {
     try {
       await this.write(bytes);

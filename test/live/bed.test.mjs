@@ -84,8 +84,8 @@ describe('FeedLedger', () => {
 });
 
 describe('payloads', () => {
-  it('v7 builds a message the library accepts, and a forgery and a malformed payload it refuses', () => {
-    const payloads = payloadsFor(PayloadFormat.V7);
+  it('v8 builds a message the library accepts, and a forgery and a malformed payload it refuses', () => {
+    const payloads = payloadsFor(PayloadFormat.V8);
     const key = randomKey();
     const built = payloads.build(draft(key));
     const accepted = parseChatMessage(built.bytes);
@@ -121,7 +121,7 @@ describe('payloads', () => {
 describe('FeedFollower', () => {
   it('follows a feed forward and sees a slot overwritten on the reread', async () => {
     const feed = fakeFeed([{ msg: { id: 'a' } }, { msg: { id: 'b' } }]);
-    const follower = new FeedFollower({ format: PayloadFormat.V7, reader: feed });
+    const follower = new FeedFollower({ format: PayloadFormat.V8, reader: feed });
     await follower.catchUp();
     assert.equal(follower.ledger.nextIndex, 2);
 
@@ -136,10 +136,10 @@ describe('FeedFollower', () => {
 });
 
 describe('GsocSender', () => {
-  it('v7 resends the identical bytes until the message is read back', async () => {
+  it('v8 resends the identical bytes until the message is read back', async () => {
     const messaging = fakeMessaging();
     let reads = 0;
-    const outcome = await sender(PayloadFormat.V7, messaging, async () => ++reads > 2).send({
+    const outcome = await sender(PayloadFormat.V8, messaging, async () => ++reads > 2).send({
       id: 'a',
       bytes: new Uint8Array([1, 2, 3]),
     });
@@ -148,9 +148,9 @@ describe('GsocSender', () => {
     assert.ok(messaging.sent.every((bytes) => bytes.join() === '1,2,3'));
   });
 
-  it('v7 gives up after its resends and reports the message failed', async () => {
+  it('v8 gives up after its resends and reports the message failed', async () => {
     const messaging = fakeMessaging();
-    const outcome = await sender(PayloadFormat.V7, messaging, async () => false).send({
+    const outcome = await sender(PayloadFormat.V8, messaging, async () => false).send({
       id: 'a',
       bytes: new Uint8Array([1]),
     });

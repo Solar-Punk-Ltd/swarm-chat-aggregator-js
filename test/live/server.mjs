@@ -42,6 +42,8 @@ const ENVIRONMENT = {
     GSOC_KEY: s.gsocKey,
     GSOC_IDENTIFIER: s.gsocIdentifier,
     CHAT_TOPIC_PATTERN: s.chatTopicPattern,
+    // The bed's senders send as guests, so no binding is checked against it.
+    CHAT_SITE_ORIGIN: 'https://chat.example.com',
     HEALTH_PORT: String(s.port),
     HEARTBEAT_INTERVAL_MS: '2000',
     HEARTBEAT_STALE_MS: '10000',

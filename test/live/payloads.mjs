@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { PrivateKey } from '@ethersphere/bee-js';
 import { createChatMessage, encodeChatMessage, parseChatMessage } from '@solarpunkltd/swarm-chat-js/message';
 
-export const PayloadFormat = { V6: 'v6', V7: 'v7' };
+export const PayloadFormat = { V6: 'v6', V8: 'v8' };
 
 /** The library's own wire check, for the bed's tests. */
 export { parseChatMessage };
@@ -37,8 +37,8 @@ function buildV6({ key, topic, text, name, index }) {
   return { id: message.id, sender: address, bytes: encoder.encode(JSON.stringify(message)) };
 }
 
-function buildV7({ key, topic, text, name }) {
-  const { message, bytes } = createChatMessage(key, { topic, type: 'text', text, name });
+function buildV8({ key, topic, text, name }) {
+  const { message, bytes } = createChatMessage(key, { topic, type: 'text', text, name, via: 'gateway' });
   return { id: message.id, sender: message.addr, bytes };
 }
 
@@ -51,12 +51,13 @@ function forgeV6(draft) {
 }
 
 /** A correctly signed message whose text changed after signing. */
-function forgeV7(draft) {
+function forgeV8(draft) {
   const { message } = createChatMessage(draft.key, {
     topic: draft.topic,
     type: 'text',
     text: draft.text,
     name: draft.name,
+    via: 'gateway',
   });
   const forged = { ...message, text: `${message.text} (forged)` };
   return { id: forged.id, sender: forged.addr, bytes: encodeChatMessage(forged) };
@@ -65,7 +66,7 @@ function forgeV7(draft) {
 /** Bytes that name the chat's topic, so a server routes them there, and are not a message of either format. */
 function malformed(format, topic) {
   const topicField = format === PayloadFormat.V6 ? 'chatTopic' : 'topic';
-  return encoder.encode(`{"${topicField}":${JSON.stringify(topic)},"v":7,"text":`);
+  return encoder.encode(`{"${topicField}":${JSON.stringify(topic)},"v":8,"text":`);
 }
 
 export function randomKey() {
@@ -82,8 +83,8 @@ export function payloadsFor(format) {
   if (format === PayloadFormat.V6) {
     return { build: buildV6, forge: forgeV6, malformed: (topic) => malformed(format, topic) };
   }
-  if (format === PayloadFormat.V7) {
-    return { build: buildV7, forge: forgeV7, malformed: (topic) => malformed(format, topic) };
+  if (format === PayloadFormat.V8) {
+    return { build: buildV8, forge: forgeV8, malformed: (topic) => malformed(format, topic) };
   }
-  throw new Error(`unknown payload format ${format}, expected v6 or v7`);
+  throw new Error(`unknown payload format ${format}, expected v6 or v8`);
 }

@@ -1,6 +1,6 @@
 // The live chat bed: a Bee cluster on a local test chain, the chat server as a child process, and B1 to B4.
 //
-//   node test/live/bed.mjs [--server event|master] [--format v7|v6] [--expect-fail B2,B3,B4] [--only B1,B4]
+//   node test/live/bed.mjs [--server event|master] [--format v8|v6] [--expect-fail B2,B3,B4] [--only B1,B4]
 //
 // Strict by default: every scenario must pass. --expect-fail names the scenarios a baseline run exists to see
 // fail, and the run then passes only when exactly those fail. Timings are printed and never asserted.
@@ -18,7 +18,7 @@ import { ServerKind, ServerProcess } from './server.mjs';
 const { values: args } = parseArgs({
   options: {
     server: { type: 'string', default: ServerKind.EVENT },
-    format: { type: 'string', default: PayloadFormat.V7 },
+    format: { type: 'string', default: PayloadFormat.V8 },
     'expect-fail': { type: 'string', default: '' },
     only: { type: 'string', default: Object.keys(SCENARIOS).join(',') },
     bee: { type: 'string', default: '2.8.2' },
