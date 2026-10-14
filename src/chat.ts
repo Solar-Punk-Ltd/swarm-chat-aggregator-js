@@ -9,6 +9,7 @@ import {
 
 import { type Checkpoint, CheckpointDamagedError, type CheckpointStore } from './checkpoint.js';
 import { encodeFeedEntry, makeFeedEntry, rowOf } from './feed/entry.js';
+import { type NoteHealth, type NoteTimings, SlotNoteWriter } from './feed/notes.js';
 import type { ChatFeed, SlotRead } from './feed/slots.js';
 import type { HistoryBook, HistoryStart, HistoryStore } from './history.js';
 import type { Logger } from './libs/logger.js';
@@ -36,6 +37,7 @@ export type ChatTimings = {
   publishAttempts: number;
   retryBaseMs: number;
   resumeRetryMs: number;
+  notes: NoteTimings;
 };
 
 /** A slot whose entry has not landed yet, and how long the chat has waited on it. */
@@ -59,6 +61,7 @@ export type ChatHealth = {
   historyLost: HistoryLink | null;
   historyTrail: number;
   history: HistoryLink | null;
+  notes: NoteHealth;
 };
 
 type Queued = { msg: ChatMessage; at: number };
@@ -69,6 +72,12 @@ type PendingEntry = {
   bytes: Uint8Array;
   row: HistoryRow;
   persisted: boolean;
+  /**
+   * The slot is read before the entry's first write. Only an entry resumed from the checkpoint, or staged before the
+   * chat has confirmed a slot since it resumed, needs it: that is where a checkpoint behind the feed would meet
+   * another writer's bytes. A running chat is this slot's only writer.
+   */
+  readFirst: boolean;
   /** The entry is in its slot, and waits only for every slot before it to land too. */
   landed: boolean;
   stallSince: number | null;
@@ -124,6 +133,9 @@ export class ChatPublisher {
   });
   private loop: Promise<void> | undefined;
   private checkpointWrites: Promise<boolean> = Promise.resolve(true);
+  /** A slot has been confirmed since the chat resumed, so the feed's tip is known to be this server's. */
+  private tipConfirmed = false;
+  private readonly notes: SlotNoteWriter;
 
   constructor(
     readonly topic: string,
@@ -139,7 +151,9 @@ export class ChatPublisher {
      * and the chat retries later.
      */
     private readonly findHead: (feed: ChatFeed) => Promise<number>,
-  ) {}
+  ) {
+    this.notes = new SlotNoteWriter(topic, feed, timings.notes, () => this.confirmedIndex, logger);
+  }
 
   get state(): ChatState {
     return this.stateValue;
@@ -216,6 +230,7 @@ export class ChatPublisher {
       this.stateValue = ChatState.Stopped;
     }
     this.signalStop();
+    this.notes.stop();
     for (const entry of this.pending.values()) {
       if (!entry.persisted) {
         this.pending.delete(entry.index);
@@ -256,6 +271,7 @@ export class ChatPublisher {
       historyLost: this.historyLost,
       historyTrail: this.history.trail,
       history: this.history.newestLink,
+      notes: this.notes.health(),
     };
   }
 
@@ -310,6 +326,7 @@ export class ChatPublisher {
         bytes: encodeFeedEntry(makeFeedEntry(row, this.history.newestLink)),
         row,
         persisted: false,
+        readFirst: !this.tipConfirmed,
         landed: false,
         stallSince: null,
         attempts: 0,
@@ -387,6 +404,7 @@ export class ChatPublisher {
         bytes,
         row: rowOf(entry.value),
         persisted: true,
+        readFirst: true,
         landed: false,
         stallSince: null,
         attempts: 0,
@@ -446,6 +464,8 @@ export class ChatPublisher {
     this.confirmedIndex = confirmedIndex;
     this.nextIndex = confirmedIndex + 1 + pending.length;
     this.stateValue = ChatState.Ready;
+    this.tipConfirmed = false;
+    this.notes.start();
     for (const entry of pending) {
       this.pending.set(entry.index, entry);
       this.queuedIds.add(messageKey(entry.row.msg));
@@ -537,11 +557,14 @@ export class ChatPublisher {
 
   /**
    * Writes one entry, resending the same bytes until one write succeeds, for as long as it takes. Reads the slot
-   * first: our own bytes there mean an earlier attempt landed, anything else means the slot is taken.
+   * first where `readFirst` asks, and before every attempt after a write that failed: our own bytes there mean an
+   * earlier attempt landed, anything else means the slot is taken. A running chat writes without reading, because a
+   * read of a slot not yet written makes Bee skip its peers for that address for a minute, which delayed the entry
+   * for every viewer.
    */
   private async deliver(entry: PendingEntry): Promise<void> {
     entry.stallSince ??= Date.now();
-    let checked = false;
+    let checked = !entry.readFirst;
     for (let attempt = 0; this.stillDelivering(entry); attempt++) {
       if (attempt > 0) {
         await this.sleepUnlessStopped(retryDelayMs(attempt - 1, this.timings.retryBaseMs));
@@ -569,6 +592,8 @@ export class ChatPublisher {
           await this.landed(entry);
           return;
         }
+        // The write may have landed before it failed, or met another writer's bytes: the next attempt reads first.
+        checked = false;
         this.lastError = `slot ${entry.index}: ${write.error}`;
       }
       if (entry.attempts % this.timings.publishAttempts === 0) {
@@ -612,6 +637,7 @@ export class ChatPublisher {
    */
   private async landed(entry: PendingEntry): Promise<void> {
     entry.landed = true;
+    this.tipConfirmed = true;
     const confirmed: PendingEntry[] = [];
     for (
       let next = this.pending.get(this.confirmedIndex + 1);
@@ -683,6 +709,7 @@ export class ChatPublisher {
       return;
     }
     this.stateValue = ChatState.Blocked;
+    this.notes.stop();
     this.failing = true;
     this.lastError = reason;
     this.logger.error(`[chat ${this.topic}] stopped publishing, ${reason}`);
