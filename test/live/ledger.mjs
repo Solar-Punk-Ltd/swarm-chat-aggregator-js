@@ -116,3 +116,26 @@ export function describeSendToFeed(firstSentAt, ledger, windowMs) {
     (neverAppeared ? `, ${neverAppeared} never appeared` : '')
   );
 }
+
+/**
+ * What a scenario's feed says about it. A sender that gave up while its message still reached the feed is reported
+ * with how far past the senders' window it landed, and is no failure. A message that never landed, one in more than
+ * one slot, an overwritten slot and a foreign one fail.
+ * @param {{ledger: FeedLedger, expectedIds: string[], gaveUpSentAt: Map<string, number>, windowMs: number}} run
+ * @returns {{problems: string[], reports: string[]}}
+ */
+export function judgeScenario({ ledger, expectedIds, gaveUpSentAt, windowMs }) {
+  const verdict = ledger.verdict(expectedIds);
+  const problems = isClean(verdict) ? [] : [describeVerdict(verdict)];
+  const landed = new Map([...gaveUpSentAt].filter(([id]) => ledger.has(id)));
+  const reports = [];
+  if (landed.size) {
+    const seenAt = ledger.appearances();
+    const latest = Math.max(...[...landed].map(([id, sentAt]) => seenAt.get(id) - sentAt));
+    reports.push(
+      `${landed.size} senders gave up before their message landed, it landed ${latest - windowMs} ms past the window ` +
+        `(${describeSendToFeed(landed, ledger, windowMs)})`,
+    );
+  }
+  return { problems, reports };
+}
