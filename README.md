@@ -1,6 +1,6 @@
 # Swarm Chat Aggregator
 
-The chat server for [swarm-chat-js](https://github.com/Solar-Punk-Ltd/swarm-chat-js) 7. Browsers send chat
+The chat server for [swarm-chat-js](https://github.com/Solar-Punk-Ltd/swarm-chat-js) 8. Browsers send chat
 messages as GSOC writes to one inbox address. This server listens on that inbox, checks every message, and
 publishes each accepted one into its chat's Swarm feed, which browsers read. The browser only ever talks to
 Swarm, through a gateway or its own Bee node.
@@ -11,8 +11,9 @@ Swarm, through a gateway or its own Bee node.
    address's neighbourhood. Every chat arrives through this one inbox, and the message's own `topic` says
    which chat it belongs to.
 2. **Checking.** Each payload is checked by the library's message module (`@solarpunkltd/swarm-chat-js/message`):
-   at most 2,048 bytes, UTF-8 JSON of the version 7 shape, and a signature that recovers the sender's `addr`.
-   Then the server checks that the chat is allowed, that the sender's clock `ts` is within a day of its own,
+   at most 3,072 bytes, UTF-8 JSON of the version 8 shape, a signature that recovers the sender's `addr`, and,
+   when the message carries a Swarm ID binding, a binding that names this `addr` and recovers an account. A
+   message of any other version is refused as `shape`, and one whose binding fails is refused as `binding`. Then the server checks that the chat is allowed, that the sender's clock `ts` is within a day of its own,
    that the message is not a duplicate of one it already took (by `addr` and `id`), and that the chat and the
    sender are within their rates. Every drop is counted by its reason.
 3. **Publishing.** Each chat has its own queue and publishes one message per feed slot, at indices 0, 1, 2 and
@@ -27,17 +28,40 @@ Written to slot `seq` of the chat's feed, always under 4,096 bytes so Bee never 
 
 | Field     | Meaning                                                                          |
 | :-------- | :------------------------------------------------------------------------------- |
-| `v`       | `7`                                                                              |
+| `v`       | `8`                                                                              |
 | `seq`     | the message's number in this chat, equal to the feed index                       |
 | `at`      | the server's receive time in milliseconds, the time a viewer shows               |
-| `msg`     | the message exactly as received and verified                                     |
+| `msg`     | the message exactly as received and verified, every field kept                   |
 | `history` | `{ref, toSeq}` of the newest saved history file, or `null` before the first save |
 
 The link trails by however many messages were published while the previous save was running.
 
+### The message
+
+`msg` is the library's version 8 chat message, published field for field as it arrived. The server adds nothing
+to it, and the entry around it adds only `seq` and `at` beside the `v` and `history` every entry has.
+
+| Field    | Meaning                                                                                  |
+| :------- | :--------------------------------------------------------------------------------------- |
+| `v`      | `8`                                                                                      |
+| `topic`  | the chat, 1 to 128 characters                                                            |
+| `id`     | the message id, 32 lowercase hex characters, which with `addr` makes the duplicate check |
+| `type`   | `text`, `thread` or `reaction`                                                           |
+| `target` | the id a thread reply or a reaction refers to, empty for a text message                  |
+| `text`   | 1 to 500 characters                                                                      |
+| `name`   | the display name, 1 to 20 characters                                                     |
+| `addr`   | the sender's chat address, 40 lowercase hex characters                                   |
+| `ts`     | the sender's clock in milliseconds, within a day of the server's                         |
+| `via`    | who paid for the inbox write, `gateway` or `own-stamp`                                   |
+| `own`    | whether the sender also keeps a copy in a feed of its own                                |
+| `idb`    | the sender's Swarm ID binding `{msg, sig}`, only for a signed-in sender                  |
+| `sig`    | the sender's signature over every field above, 130 lowercase hex characters              |
+
+Every field but `sig` is signed, `via`, `own` and `idb` included, so none can change on the way.
+
 ### The history file
 
-An ordinary Swarm upload of JSON: `{v: 7, topic, fromSeq, toSeq, messages: [{seq, at, msg}], prev}`. One save
+An ordinary Swarm upload of JSON: `{v: 8, topic, fromSeq, toSeq, messages: [{seq, at, msg}], prev}`. One save
 runs at a time per chat, and messages published meanwhile ride the next save, so a burst costs at most two
 saves, and a busy chat saves at most once per `HISTORY_SAVE_INTERVAL_MS`, so history uploads do not crowd out
 the feed writes on the same node. A file closes at 1,000 messages or 512 KB, and the next one starts with `prev` pointing at it. Files are
@@ -98,7 +122,7 @@ over its life, about 20 MB at 300 messages and about 200 MB at 1,000, before red
 A websocket dropped by a proxy never reports a close, so the server resubscribes whenever no frame has arrived
 for `RESUBSCRIBE_IDLE_MS`, opening the new subscription before closing the old one. It also sends itself a
 heartbeat every `HEARTBEAT_INTERVAL_MS` through the heartbeat node, which must be a different node from the
-listening one. Heartbeats are `{v: 7, type: "heartbeat", nonce}`, recognised before any chat message, matched
+listening one. Heartbeats are `{v: 8, type: "heartbeat", nonce}`, recognised before any chat message, matched
 against the nonces the server sent, counted, and never published.
 
 ### Health

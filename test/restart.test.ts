@@ -2,6 +2,7 @@ import { readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { Bee, FeedIndex, Topic } from '@ethersphere/bee-js';
+import { MESSAGE_VERSION } from '@solarpunkltd/swarm-chat-js/message';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { LockHeldError } from '../src/lock.js';
@@ -257,7 +258,7 @@ describe('pipelined slots', () => {
   });
 
   test('a pending list that does not run on from the last confirmed slot blocks the chat loudly', async () => {
-    const entry = { v: 7, seq: 2, at: 1, msg: message().message, history: null };
+    const entry = { v: MESSAGE_VERSION, seq: 2, at: 1, msg: message().message, history: null };
     await writeFile(
       join(rig.checkpointDir, `${Topic.fromString(CHAT).toHex()}.json`),
       JSON.stringify({

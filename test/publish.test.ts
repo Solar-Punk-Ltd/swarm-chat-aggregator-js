@@ -1,3 +1,4 @@
+import { MESSAGE_VERSION } from '@solarpunkltd/swarm-chat-js/message';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { encodeHeartbeat, newHeartbeat } from '../src/heartbeat.js';
@@ -27,12 +28,12 @@ describe('publishing', () => {
 
     const entry0 = rig.entry(0);
     const entry1 = rig.entry(1);
-    expect(entry0).toMatchObject({ v: 7, seq: 0, msg: first.message, history: null });
+    expect(entry0).toMatchObject({ v: MESSAGE_VERSION, seq: 0, msg: first.message, history: null });
     expect(entry0?.at).toBeGreaterThan(0);
-    expect(entry1).toMatchObject({ v: 7, seq: 1, msg: second.message });
+    expect(entry1).toMatchObject({ v: MESSAGE_VERSION, seq: 1, msg: second.message });
     expect(entry1?.history?.toSeq).toBe(0);
     const saved = rig.history(entry1?.history?.ref ?? '');
-    expect(saved).toMatchObject({ v: 7, topic: CHAT, fromSeq: 0, toSeq: 0, prev: null });
+    expect(saved).toMatchObject({ v: MESSAGE_VERSION, topic: CHAT, fromSeq: 0, toSeq: 0, prev: null });
     expect(saved.messages.map((row) => row.msg.text)).toEqual(['first']);
     await waitFor(() => server.stats.published === 2, 5000, 'two published');
   });
@@ -64,7 +65,7 @@ describe('publishing', () => {
     await rig.send(tampered);
     await rig.send(new TextEncoder().encode('not json'));
     await rig.send(new Uint8Array([0xff, 0xfe, 0xfd]));
-    await rig.send(new TextEncoder().encode(JSON.stringify({ v: 7, topic: CHAT })));
+    await rig.send(new TextEncoder().encode(JSON.stringify({ v: MESSAGE_VERSION, topic: CHAT })));
     await rig.send(message({ ts: Date.now() - 2 * 24 * 60 * 60 * 1000 }));
     await rig.send(encodeHeartbeat(newHeartbeat()));
 
