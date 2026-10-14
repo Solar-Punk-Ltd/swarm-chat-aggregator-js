@@ -19,10 +19,16 @@ export class FeedLedger {
     else this.slots.set(index, { first: id, last: id, seenAt });
   }
 
-  /** When the last of these ids was first seen in the feed, or null while any of them is still missing. */
-  lastAppearedAt(ids) {
+  /** When each message was first seen in the feed, by id. */
+  appearances() {
     const seenAt = new Map();
     for (const { last, seenAt: at } of this.slots.values()) if (!seenAt.has(last)) seenAt.set(last, at);
+    return seenAt;
+  }
+
+  /** When the last of these ids was first seen in the feed, or null while any of them is still missing. */
+  lastAppearedAt(ids) {
+    const seenAt = this.appearances();
     let latest = 0;
     for (const id of ids) {
       if (!seenAt.has(id)) return null;
@@ -84,4 +90,29 @@ export function describeVerdict(verdict) {
     );
   }
   return parts.length ? parts.join(', ') : 'every message exactly once, no slot overwritten';
+}
+
+/**
+ * How long each message took from its first send to its first sight in the feed, and how close the slowest came to
+ * the senders' window, the time after which a sender gives up. A pass or a fail says only which side of the window
+ * the slowest message fell, and this says by how much, so runs of two commits compare on a number.
+ */
+export function describeSendToFeed(firstSentAt, ledger, windowMs) {
+  const seenAt = ledger.appearances();
+  const spans = [];
+  let neverAppeared = 0;
+  for (const [id, sentAt] of firstSentAt) {
+    if (seenAt.has(id)) spans.push(seenAt.get(id) - sentAt);
+    else neverAppeared++;
+  }
+  if (spans.length === 0) return `no message appeared in the feed, ${neverAppeared} sent`;
+  spans.sort((a, b) => a - b);
+  const at = (fraction) => spans[Math.min(spans.length - 1, Math.floor(fraction * spans.length))];
+  const slowest = spans.at(-1);
+  const past = spans.filter((span) => span > windowMs).length;
+  return (
+    `first send to feed per message p50 ${at(0.5)} p90 ${at(0.9)} max ${slowest} ms, ` +
+    `smallest margin to the ${windowMs} ms sender window ${windowMs - slowest} ms, ${past} past it` +
+    (neverAppeared ? `, ${neverAppeared} never appeared` : '')
+  );
 }

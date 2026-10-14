@@ -6,6 +6,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 
 const SOC_HEADER_BYTES = 32 + 65;
 const SPAN_BYTES = 8;
+const CHUNK_PAYLOAD_BYTES = 4096;
 
 function hex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('hex');
@@ -91,7 +92,17 @@ type Faults = {
   connectedPeers: number;
   /** /readiness and /topology answer this status instead. */
   statusFailure: number | undefined;
+  /**
+   * A node that pushes one chunk at a time: every SOC write and data upload waits its turn and holds the queue for
+   * `msPerChunk` per chunk, a data upload counting `dataChunkFactor` chunks per 4,096 bytes for its parity.
+   */
+  push: PushModel | undefined;
 };
+
+export type PushModel = { msPerChunk: number; dataChunkFactor: number };
+
+/** What a node with a push model pushed, by kind. */
+export type PushCounts = { socChunks: number; dataChunks: number; dataBytes: number };
 
 /** One fake Bee node over real HTTP and a real websocket, backed by a FakeSwarm. */
 export class FakeBeeNode {
@@ -112,7 +123,10 @@ export class FakeBeeNode {
     ready: true,
     connectedPeers: 10,
     statusFailure: undefined,
+    push: undefined,
   };
+  readonly pushed: PushCounts = { socChunks: 0, dataChunks: 0, dataBytes: 0 };
+  private pushQueue: Promise<void> = Promise.resolve();
   readonly requests: string[] = [];
   /** Every SOC write's chunk address, in the order the writes arrived, refused ones included. */
   readonly socWriteAddresses: string[] = [];
@@ -240,6 +254,8 @@ export class FakeBeeNode {
         return send(500, { message: 'internal error' });
       }
       await delay(this.faults.socWriteDelayMs);
+      await this.pushChunks(1);
+      this.pushed.socChunks += this.faults.push ? 1 : 0;
       const [, owner, identifier] = match;
       const address = socAddress(identifier, owner);
       this.socWriteAddresses.push(address);
@@ -292,6 +308,12 @@ export class FakeBeeNode {
         return send(500, { message: 'internal error' });
       }
       await delay(this.faults.dataUploadDelayMs);
+      if (this.faults.push) {
+        const chunks = Math.ceil(body.length / CHUNK_PAYLOAD_BYTES) * this.faults.push.dataChunkFactor;
+        await this.pushChunks(chunks);
+        this.pushed.dataChunks += chunks;
+        this.pushed.dataBytes += body.length;
+      }
       const reference = hex(Bytes.keccak256(body).toUint8Array());
       this.swarm.data.set(reference, body);
       return send(201, { reference });
@@ -303,6 +325,17 @@ export class FakeBeeNode {
     }
 
     return send(404, { message: `no fake route for ${request.method} ${url.pathname}` });
+  }
+
+  /** Waits for the push queue and holds it for `chunks` chunks, when the node has a push model. */
+  private pushChunks(chunks: number): Promise<void> {
+    const model = this.faults.push;
+    if (!model) {
+      return Promise.resolve();
+    }
+    const turn = this.pushQueue.then(() => delay(chunks * model.msPerChunk));
+    this.pushQueue = turn;
+    return turn;
   }
 
   private takeMiss(address: string): boolean {
