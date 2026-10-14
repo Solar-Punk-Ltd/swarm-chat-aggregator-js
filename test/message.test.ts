@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import {
   BOUND_SITE,
   BOUND_SITE_BINDING,
+  LOCAL_SITE,
+  LOCAL_SITE_BINDING,
+  OTHER_SITE,
   OTHER_SITE_BINDING,
   chatKeyFor,
   signedWithBinding,
@@ -87,6 +90,39 @@ describe('message version 8', () => {
     const server = await rig.startServer();
     const altered = { ...BOUND_SITE_BINDING, sig: `${BOUND_SITE_BINDING.sig.slice(0, -2)}1d` };
     await rig.send(signedWithBinding(chatKeyFor(BOUND_SITE), altered));
+    await waitFor(() => server.stats.dropped.get('binding') === 1, 5000, 'the refusal');
+    expect(rig.entry(0)).toBeUndefined();
+  });
+});
+
+describe('the site origin', () => {
+  test('accepts a binding for the site CHAT_SITE_ORIGIN names', async () => {
+    const server = await rig.startServer({ CHAT_SITE_ORIGIN: BOUND_SITE });
+    const sent = boundMessage();
+    await rig.send(sent);
+    await waitFor(() => server.stats.published === 1, 5000, 'published');
+    expect(rig.entry(0)?.msg).toStrictEqual(sent.message);
+  });
+
+  test('refuses a valid binding for another site as binding', async () => {
+    const server = await rig.startServer({ CHAT_SITE_ORIGIN: BOUND_SITE });
+    await rig.send(message({ idb: OTHER_SITE_BINDING }, chatKeyFor(OTHER_SITE)));
+    await waitFor(() => server.stats.dropped.get('binding') === 1, 5000, 'the refusal');
+    expect(rig.entry(0)).toBeUndefined();
+    expect(rig.logs.some((line) => line.includes(`not ${BOUND_SITE}`))).toBe(true);
+  });
+
+  test('accepts a binding for a local development site only when CHAT_SITE_ORIGIN names it', async () => {
+    const local = message({ idb: LOCAL_SITE_BINDING }, chatKeyFor(LOCAL_SITE));
+    const server = await rig.startServer({ CHAT_SITE_ORIGIN: LOCAL_SITE });
+    await rig.send(local);
+    await waitFor(() => server.stats.published === 1, 5000, 'published');
+    expect(rig.entry(0)?.msg).toStrictEqual(local.message);
+  });
+
+  test('refuses a binding for a local development site in a chat served for a public site', async () => {
+    const server = await rig.startServer({ CHAT_SITE_ORIGIN: BOUND_SITE });
+    await rig.send(message({ idb: LOCAL_SITE_BINDING }, chatKeyFor(LOCAL_SITE)));
     await waitFor(() => server.stats.dropped.get('binding') === 1, 5000, 'the refusal');
     expect(rig.entry(0)).toBeUndefined();
   });

@@ -39,6 +39,14 @@ export const OTHER_SITE_BINDING: ChatBinding = {
   sig: '0xb41bf4bc3623511e462c947495147dc32a651574884182ca6ae85a5374b5529c3a8a12fe082c32c4956662501f49d7810937e2ce7283450c4d801409187f9a301c',
 };
 
+/** Made by the fork with `allowLocalHttp`, as its development build signs one. */
+export const LOCAL_SITE = 'http://localhost:5173';
+
+export const LOCAL_SITE_BINDING: ChatBinding = {
+  msg: 'Swarm ID chat binding v1\nSite: http://localhost:5173\nChat address: 0x53211e623dcc41a5f58dcaea359bb0af5866d3bf\nDate: 2026-10-14T12:00:00.000Z',
+  sig: '0x05f059979417de319d2c51aa27649322ca7d9367fba7c8f175f6168f4fa056a349da0352a65dd129b6775508282bbc64160623791daf8da5e65ceb462b9919de1c',
+};
+
 /** The chat key the fork gives its test account on `site`, HMAC-SHA256 of the origin under the account key. */
 export function chatKeyFor(site: string): string {
   return createHmac('sha256', Buffer.from(FORK_ACCOUNT_KEY, 'hex')).update(site).digest('hex');

@@ -18,6 +18,7 @@ import type { HistoryLimits, UploadedHistoryFile } from '../../src/history.js';
 import { type Logger, consoleLogger } from '../../src/libs/logger.js';
 import { AggregatorServer } from '../../src/server.js';
 import { type Environment, type Settings, parseSettings } from '../../src/settings.js';
+import { BOUND_SITE } from './bindings.js';
 import { FakeBeeNode, FakeSwarm } from './fakeBee.js';
 
 /** Test-only keys and stamps, made fresh for every run and never used anywhere real. */
@@ -87,6 +88,7 @@ export class Rig {
       GSOC_IDENTIFIER: this.gsocIdentifier,
       CHAT_TOPICS: CHAT,
       CHAT_TOPIC_PATTERN: 'chat-pattern-.*',
+      CHAT_SITE_ORIGIN: BOUND_SITE,
       RATE_WINDOW_MS: '60000',
       RATE_PER_CHAT: '1000',
       RATE_PER_SENDER: '1000',
