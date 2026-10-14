@@ -90,6 +90,7 @@ export class AggregatorServer {
     this.historyStore = new BeeHistoryStore(this.writeBee, settings.writeStamp, settings.historyTimeoutMs);
     this.intake = new Intake(
       settings.allowedChats,
+      settings.siteOrigin,
       settings.rates,
       this.sentNonces,
       (topic) => this.chatFor(topic),

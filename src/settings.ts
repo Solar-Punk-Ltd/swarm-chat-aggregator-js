@@ -43,6 +43,36 @@ const topicPattern = z
     }
   });
 
+const LOCAL_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Whether `origin` is an http origin on this machine, the only plain-http site a Swarm ID binding may name. */
+export function isLocalHttpOrigin(origin: string): boolean {
+  const url = new URL(origin);
+  return url.protocol === 'http:' && LOCAL_HOSTS.has(url.hostname);
+}
+
+const siteOrigin = z
+  .string()
+  .trim()
+  .transform((value, context) => {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      context.addIssue({ code: 'custom', message: 'expected a site origin, such as https://chat.example.com' });
+      return z.NEVER;
+    }
+    const bare = url.username === '' && url.password === '' && url.pathname === '/' && !url.search && !url.hash;
+    if (!bare || (url.protocol !== 'https:' && !isLocalHttpOrigin(url.origin))) {
+      context.addIssue({
+        code: 'custom',
+        message: 'expected https:// and a host with no path, or http:// on localhost for development',
+      });
+      return z.NEVER;
+    }
+    return url.origin;
+  });
+
 /** Every setting the server reads, by the environment variable that carries it. */
 const environmentShape = z.object({
   LISTEN_BEE_URL: url,
@@ -55,6 +85,7 @@ const environmentShape = z.object({
   GSOC_IDENTIFIER: z.string().min(1),
   CHAT_TOPICS: topicList,
   CHAT_TOPIC_PATTERN: topicPattern,
+  CHAT_SITE_ORIGIN: siteOrigin,
   MAX_ACTIVE_CHATS: count(50),
   CHAT_IDLE_EVICT_MS: milliseconds(10 * MINUTE),
   RATE_WINDOW_MS: milliseconds(MINUTE),
@@ -114,6 +145,8 @@ export type Settings = {
   gsocKey: string;
   gsocIdentifier: string;
   allowedChats: { topics: ReadonlySet<string>; pattern: RegExp | undefined; maxActive: number };
+  /** The one site whose Swarm ID bindings this server accepts. */
+  siteOrigin: string;
   rates: { windowMs: number; perChat: number; perSender: number };
   chatIdleEvictMs: number;
   queueLimit: number;
@@ -170,6 +203,7 @@ export function parseSettings(environment: Record<string, string | undefined>): 
       pattern: env.CHAT_TOPIC_PATTERN,
       maxActive: env.MAX_ACTIVE_CHATS,
     },
+    siteOrigin: env.CHAT_SITE_ORIGIN,
     rates: { windowMs: env.RATE_WINDOW_MS, perChat: env.RATE_PER_CHAT, perSender: env.RATE_PER_SENDER },
     chatIdleEvictMs: env.CHAT_IDLE_EVICT_MS,
     queueLimit: env.QUEUE_LIMIT,

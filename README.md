@@ -13,7 +13,10 @@ Swarm, through a gateway or its own Bee node.
 2. **Checking.** Each payload is checked by the library's message module (`@solarpunkltd/swarm-chat-js/message`):
    at most 3,072 bytes, UTF-8 JSON of the version 8 shape, a signature that recovers the sender's `addr`, and,
    when the message carries a Swarm ID binding, a binding that names this `addr` and recovers an account. A
-   message of any other version is refused as `shape`, and one whose binding fails is refused as `binding`. Then the server checks that the chat is allowed, that the sender's clock `ts` is within a day of its own,
+   message of any other version is refused as `shape`, and one whose binding fails is refused as `binding`. A
+   binding must also name the site in `CHAT_SITE_ORIGIN`, since the server serves one site, so a sender signed in
+   on another site cannot carry that identity into these chats. `CHAT_SITE_ORIGIN` is required, and a binding for
+   `http://localhost` is accepted only when it names that local origin, as a development build does. Then the server checks that the chat is allowed, that the sender's clock `ts` is within a day of its own,
    that the message is not a duplicate of one it already took (by `addr` and `id`), and that the chat and the
    sender are within their rates. Every drop is counted by its reason.
 3. **Publishing.** Each chat has its own queue and publishes one message per feed slot, at indices 0, 1, 2 and
@@ -171,6 +174,7 @@ its name. A `.env` file in the working directory is read when it is there.
 | `GSOC_IDENTIFIER`          | required        | the inbox's identifier string                                                                                                       |
 | `CHAT_TOPICS`              | one of the two  | the allowed chats, a comma-separated list of topics                                                                                 |
 | `CHAT_TOPIC_PATTERN`       | one of the two  | the allowed chats, a regular expression matched against the whole topic                                                             |
+| `CHAT_SITE_ORIGIN`         | required        | the site the chats are served for, such as `https://chat.example.com`, the only site whose Swarm ID bindings are accepted           |
 | `MAX_ACTIVE_CHATS`         | `50`            | how many chats outside `CHAT_TOPICS` the server publishes at once, listed chats are not counted                                     |
 | `CHAT_IDLE_EVICT_MS`       | `600000`        | how long a chat outside `CHAT_TOPICS` must be quiet before it may be evicted to make room at the cap                                |
 | `RATE_WINDOW_MS`           | `60000`         | the window the two rates count in                                                                                                   |

@@ -15,6 +15,10 @@ The message, its signed bytes, its checks and its caps belong to the library's m
 `@solarpunkltd/swarm-chat-js/message`. This server imports it and keeps no copy. A change to the
 message format is made in the library first.
 
+The server serves the chats of one site. `CHAT_SITE_ORIGIN` is required and is always passed to the library as
+`origin`, so a Swarm ID binding signed for any other site is refused. Never make it optional, because without it a
+sender signed in on one site could carry that identity into another site's chats.
+
 ## Branches
 
 - `master` is the base of this line. The `msrs` branch is another deployment's server and is never
