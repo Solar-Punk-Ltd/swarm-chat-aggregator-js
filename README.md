@@ -299,6 +299,11 @@ and give it at least `LOCK_STALE_MS` to start after a kill.
 `pnpm lint`, `pnpm format`, `pnpm format:check`, `pnpm typecheck`, `pnpm test` and `pnpm build`. The tests run
 the whole server against a fake Bee over HTTP and a websocket, in `test/helpers/fakeBee.ts`.
 
+`pnpm bench` replays B1's load, 200 messages from 20 senders in two seconds with the bed's resends, against a fake
+writing node that pushes one chunk at a time, and prints where the time went: the intake per frame, the feed
+writes, receipt to write, each message's first send to the feed against the senders' 60 s window, and the chunks
+the node pushed. It asserts only that every message landed once, and it stays out of `pnpm test`.
+
 The message library is `@solarpunkltd/swarm-chat-js` 8.0.0 from npm, exempt from the one-week release age in
 `pnpm-workspace.yaml` because it is our own package.
 

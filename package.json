@@ -33,6 +33,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run && node --test test/live/bed.test.mjs",
     "test:docker": "pnpm build && node test/live/bed.mjs",
+    "bench": "vitest run --config vitest.bench.config.ts --reporter=verbose",
     "mine": "node dist/mine.js"
   },
   "dependencies": {
