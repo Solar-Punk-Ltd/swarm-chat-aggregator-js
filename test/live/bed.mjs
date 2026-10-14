@@ -1,9 +1,8 @@
 // The live chat bed: a Bee cluster on a local test chain, the chat server as a child process, and B1 to B4.
 //
-//   node test/live/bed.mjs [--server event|master] [--format v7|v6] [--expect-fail B2,B3,B4] [--only B1,B4]
+//   node test/live/bed.mjs [--only B1,B4]
 //
-// Strict by default: every scenario must pass. --expect-fail names the scenarios a baseline run exists to see
-// fail, and the run then passes only when exactly those fail. Timings are printed and never asserted.
+// Every scenario that runs must pass. Timings are printed and never asserted.
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -11,15 +10,12 @@ import { parseArgs } from 'node:util';
 import { Bee, Identifier } from '@ethersphere/bee-js';
 
 import { BEE_ROLES, beeBuildNote, Cluster, httpJson, removeLeftovers } from './cluster.mjs';
-import { PayloadFormat, randomKey } from './payloads.mjs';
+import { randomKey } from './payloads.mjs';
 import { SCENARIOS } from './scenarios.mjs';
-import { ServerKind, ServerProcess } from './server.mjs';
+import { ServerProcess } from './server.mjs';
 
 const { values: args } = parseArgs({
   options: {
-    server: { type: 'string', default: ServerKind.EVENT },
-    format: { type: 'string', default: PayloadFormat.V7 },
-    'expect-fail': { type: 'string', default: '' },
     only: { type: 'string', default: Object.keys(SCENARIOS).join(',') },
     bee: { type: 'string', default: '2.8.2' },
     'resend-interval-ms': { type: 'string', default: '10000' },
@@ -33,8 +29,7 @@ const listOf = (value) =>
     .map((name) => name.trim())
     .filter(Boolean);
 const scenarioNames = listOf(args.only);
-const expectedFailures = new Set(listOf(args['expect-fail']));
-for (const name of [...scenarioNames, ...expectedFailures]) {
+for (const name of scenarioNames) {
   if (!SCENARIOS[name])
     throw new Error(`unknown scenario ${name}, expected one of ${Object.keys(SCENARIOS).join(', ')}`);
 }
@@ -48,9 +43,8 @@ const cluster = new Cluster({ beeVersion: args.bee, runId, log, observe });
 let server;
 const results = {};
 
-log(`run ${runId}: server ${args.server}, format ${args.format}, Bee ${args.bee}`);
+log(`run ${runId}: Bee ${args.bee}`);
 log(beeBuildNote(args.bee));
-log(`expected to fail: ${expectedFailures.size ? [...expectedFailures].join(', ') : 'none'}`);
 
 removeLeftovers();
 try {
@@ -70,7 +64,6 @@ try {
   const feedKey = randomKey();
 
   server = new ServerProcess({
-    kind: args.server,
     log,
     settings: {
       listenUrl: cluster.url('queen'),
@@ -90,7 +83,6 @@ try {
   const ctx = {
     cluster,
     server,
-    format: args.format,
     runId,
     senderStamp,
     gsocKey,
@@ -125,22 +117,15 @@ try {
 console.log('\n[bed] observations, none of them asserted');
 for (const line of observations) console.log(`[bed]   ${line}`);
 
-const unexpected = [];
-const expectedSeen = [];
+const failures = [];
 for (const name of scenarioNames) {
   const result = results[name];
-  if (!result) unexpected.push(`${name} did not run`);
-  else if (expectedFailures.has(name) && !result.passed) expectedSeen.push(`${name}: ${result.detail}`);
-  else if (expectedFailures.has(name)) unexpected.push(`${name} passed, and this run expected it to fail`);
-  else if (!result.passed) unexpected.push(`${name} failed: ${result.detail}`);
+  if (!result) failures.push(`${name} did not run`);
+  else if (!result.passed) failures.push(`${name} failed: ${result.detail}`);
 }
 
-if (expectedSeen.length) {
-  console.log('\n[bed] failed as this run expected (--expect-fail)');
-  for (const line of expectedSeen) console.log(`[bed]   ${line}`);
-}
 console.log('\n[bed] result');
 console.log(`[bed]   ${beeBuildNote(args.bee)}`);
-if (unexpected.length) for (const line of unexpected) console.log(`[bed]   ${line}`);
-else console.log(`[bed]   every scenario did what this run expected`);
-process.exit(unexpected.length ? 1 : 0);
+if (failures.length) for (const line of failures) console.log(`[bed]   ${line}`);
+else console.log(`[bed]   every scenario passed`);
+process.exit(failures.length ? 1 : 0);

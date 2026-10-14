@@ -5,11 +5,10 @@ import { describe, it } from 'node:test';
 import { WaitAbandoned, waitFor } from './cluster.mjs';
 import { FeedFollower } from './feed.mjs';
 import { FeedLedger, isClean } from './ledger.mjs';
-import { parseChatMessage, PayloadFormat, payloadsFor, randomKey } from './payloads.mjs';
+import { parsePayload, payloads, randomKey } from './payloads.mjs';
 import { describeSendError, GsocSender, SendOutcome } from './sender.mjs';
 
-const decode = (bytes) => new TextDecoder().decode(bytes);
-const draft = (key) => ({ key, topic: 'chat-bed-test', text: 'hello', name: 'tester', index: 0 });
+const draft = (key) => ({ key, topic: 'chat-bed-test', text: 'hello', name: 'tester' });
 
 /** A feed as bee-js's reader shows it: a payload per written slot, a 404 past the last. */
 function fakeFeed(entries) {
@@ -34,13 +33,12 @@ function fakeMessaging({ failFirst = 0 } = {}) {
   };
 }
 
-function sender(format, messaging, isPublished) {
+function sender(messaging, isPublished) {
   return new GsocSender({
     messaging,
     stamp: '00'.repeat(32),
     gsocKey: randomKey(),
     gsocIdentifier: 'bed-test',
-    format,
     resendIntervalMs: 1,
     resendAttempts: 5,
     isPublished,
@@ -84,44 +82,21 @@ describe('FeedLedger', () => {
 });
 
 describe('payloads', () => {
-  it('v7 builds a message the library accepts, and a forgery and a malformed payload it refuses', () => {
-    const payloads = payloadsFor(PayloadFormat.V7);
+  it('builds a message the library accepts, and a forgery and a malformed payload it refuses', () => {
     const key = randomKey();
     const built = payloads.build(draft(key));
-    const accepted = parseChatMessage(built.bytes);
+    const accepted = parsePayload(built.bytes);
     assert.ok(accepted.ok);
     assert.equal(accepted.message.id, built.id);
-    assert.equal(parseChatMessage(payloads.forge(draft(key)).bytes).reason, 'signature');
-    assert.equal(parseChatMessage(payloads.malformed('chat-bed-test')).ok, false);
-  });
-
-  it('v6 builds 6.2.8 shape, and a forgery claims an address other than its signer', () => {
-    const payloads = payloadsFor(PayloadFormat.V6);
-    const key = randomKey();
-    const message = JSON.parse(decode(payloads.build(draft(key)).bytes));
-    assert.deepEqual(Object.keys(message).sort(), [
-      'address',
-      'chatTopic',
-      'id',
-      'index',
-      'message',
-      'signature',
-      'timestamp',
-      'type',
-      'userTopic',
-      'username',
-    ]);
-    assert.equal(message.address, key.publicKey().address().toHex());
-    const forged = JSON.parse(decode(payloads.forge(draft(key)).bytes));
-    assert.notEqual(forged.address, key.publicKey().address().toHex());
-    assert.throws(() => JSON.parse(decode(payloads.malformed('chat-bed-test'))));
+    assert.equal(parsePayload(payloads.forge(draft(key)).bytes).reason, 'signature');
+    assert.equal(parsePayload(payloads.malformed('chat-bed-test')).ok, false);
   });
 });
 
 describe('FeedFollower', () => {
   it('follows a feed forward and sees a slot overwritten on the reread', async () => {
     const feed = fakeFeed([{ msg: { id: 'a' } }, { msg: { id: 'b' } }]);
-    const follower = new FeedFollower({ format: PayloadFormat.V7, reader: feed });
+    const follower = new FeedFollower({ reader: feed });
     await follower.catchUp();
     assert.equal(follower.ledger.nextIndex, 2);
 
@@ -136,10 +111,10 @@ describe('FeedFollower', () => {
 });
 
 describe('GsocSender', () => {
-  it('v7 resends the identical bytes until the message is read back', async () => {
+  it('resends the identical bytes until the message is read back', async () => {
     const messaging = fakeMessaging();
     let reads = 0;
-    const outcome = await sender(PayloadFormat.V7, messaging, async () => ++reads > 2).send({
+    const outcome = await sender(messaging, async () => ++reads > 2).send({
       id: 'a',
       bytes: new Uint8Array([1, 2, 3]),
     });
@@ -148,9 +123,9 @@ describe('GsocSender', () => {
     assert.ok(messaging.sent.every((bytes) => bytes.join() === '1,2,3'));
   });
 
-  it('v7 gives up after its resends and reports the message failed', async () => {
+  it('gives up after its resends and reports the message failed', async () => {
     const messaging = fakeMessaging();
-    const outcome = await sender(PayloadFormat.V7, messaging, async () => false).send({
+    const outcome = await sender(messaging, async () => false).send({
       id: 'a',
       bytes: new Uint8Array([1]),
     });
@@ -158,11 +133,11 @@ describe('GsocSender', () => {
     assert.equal(messaging.sent.length, 6);
   });
 
-  it('v6 never reads the feed and retries only a failed write', async () => {
+  it('sends a one-off payload once, retrying only a failed write, and never reads the feed', async () => {
     const messaging = fakeMessaging({ failFirst: 2 });
-    const outcome = await sender(PayloadFormat.V6, messaging, async () => {
-      throw new Error('a v6 sender must not read the feed');
-    }).send({ id: 'a', bytes: new Uint8Array([1]) });
+    const outcome = await sender(messaging, async () => {
+      throw new Error('a one-off send must not read the feed');
+    }).sendOnce(new Uint8Array([1]));
     assert.equal(outcome, SendOutcome.SENT);
     assert.equal(messaging.sent.length, 1);
   });

@@ -15,6 +15,7 @@ const valid = () => ({
   GSOC_KEY: testKey(),
   GSOC_IDENTIFIER: 'chat-inbox',
   CHAT_TOPICS: 'chat-a, chat-b',
+  CHAT_SITE_ORIGIN: 'https://chat.example.com',
 });
 
 function problemsOf(environment: Record<string, string | undefined>): string[] {
@@ -60,6 +61,45 @@ describe('settings', () => {
       /^HEARTBEAT_STALE_MS/,
     );
     expect(problemsOf({ ...valid(), LOCK_REFRESH_MS: '5000', LOCK_STALE_MS: '9000' })[0]).toMatch(/^LOCK_STALE_MS/);
+  });
+});
+
+describe('CHAT_SITE_ORIGIN', () => {
+  test('is required, since a binding for any other site must be refused', () => {
+    expect(problemsOf({ ...valid(), CHAT_SITE_ORIGIN: undefined })[0]).toMatch(/^CHAT_SITE_ORIGIN/);
+  });
+
+  test('reads a site origin, without a trailing slash and in lowercase', () => {
+    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGIN: ' https://Chat.Example.com/ ' }).siteOrigin).toBe(
+      'https://chat.example.com',
+    );
+    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGIN: 'https://chat.example.com:8443' }).siteOrigin).toBe(
+      'https://chat.example.com:8443',
+    );
+    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGIN: 'http://localhost:5173' }).siteOrigin).toBe(
+      'http://localhost:5173',
+    );
+    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGIN: 'http://[::1]:5173' }).siteOrigin).toBe('http://[::1]:5173');
+    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGIN: 'https://bücher.example' }).siteOrigin).toBe(
+      'https://xn--bcher-kva.example',
+    );
+  });
+
+  test('refuses anything that is not a bare origin a binding could name', () => {
+    for (const value of [
+      'chat.example.com',
+      'https://chat.example.com/watch',
+      'https://chat.example.com/?room=1',
+      'https://user@chat.example.com',
+      'http://chat.example.com',
+      'ftp://chat.example.com',
+      'https://chat_room.example.com',
+      'https://chat.example.com.',
+      'https://[::1]',
+      'https://[2001:db8::1]:8443',
+    ]) {
+      expect(problemsOf({ ...valid(), CHAT_SITE_ORIGIN: value })[0], value).toMatch(/^CHAT_SITE_ORIGIN/);
+    }
   });
 });
 
