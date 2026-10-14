@@ -5,7 +5,7 @@ Read by AI coding agents and by people working in this repository. `CLAUDE.md` i
 
 ## What this is
 
-The chat server for swarm-chat-js 7. It listens on one GSOC inbox, checks each chat message, and
+The chat server for swarm-chat-js 8. It listens on one GSOC inbox, checks each chat message, and
 publishes the accepted ones into each chat's Swarm feed, one slot per message, with a history file
 beside it. The README describes the behaviour, the feed entry, the history file and every setting.
 

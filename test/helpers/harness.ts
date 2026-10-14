@@ -179,5 +179,12 @@ export class Rig {
 }
 
 export function message(overrides: Partial<ChatMessageDraft> = {}, key = testKey()): SignedChatMessage {
-  return createChatMessage(key, { topic: CHAT, type: 'text', text: 'hello', name: 'tester', ...overrides });
+  return createChatMessage(key, {
+    topic: CHAT,
+    type: 'text',
+    text: 'hello',
+    name: 'tester',
+    via: 'gateway',
+    ...overrides,
+  });
 }
