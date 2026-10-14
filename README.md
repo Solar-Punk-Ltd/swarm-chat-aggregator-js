@@ -299,6 +299,11 @@ and give it at least `LOCK_STALE_MS` to start after a kill.
 `pnpm lint`, `pnpm format`, `pnpm format:check`, `pnpm typecheck`, `pnpm test` and `pnpm build`. The tests run
 the whole server against a fake Bee over HTTP and a websocket, in `test/helpers/fakeBee.ts`.
 
+`pnpm bench` replays B1's load, 200 messages from 20 senders in two seconds with the bed's resends, against a fake
+writing node that pushes one chunk at a time, and prints where the time went: the intake per frame, the feed
+writes, receipt to write, each message's first send to the feed against the senders' 60 s window, and the chunks
+the node pushed. It asserts only that every message landed once, and it stays out of `pnpm test`.
+
 The message library is `@solarpunkltd/swarm-chat-js` 8.0.0 from npm, exempt from the one-week release age in
 `pnpm-workspace.yaml` because it is our own package.
 
@@ -307,7 +312,7 @@ The message library is `@solarpunkltd/swarm-chat-js` 8.0.0 from npm, exempt from
 `pnpm test:docker` runs the chat against real Bee nodes on a local test chain, so no real BZZ is spent. It needs a Docker daemon it can reach as a sibling container.
 
 - **The cluster** is fdp-play's local chain and three full Bee nodes, made from fdp-play's own node images, whose keys that chain funded. The server listens on one node and writes through another.
-- **The scenarios** are B1 to B4: many senders at once, a server restart, a listening connection that dies without a close, and a malformed and a forged message. Each passes only when the chat feed holds every valid message exactly once, overwrites no slot and holds nothing else. Timings are printed and never asserted.
+- **The scenarios** are B1 to B4: many senders at once, a server restart, a listening connection that dies without a close, and a malformed and a forged message. Each passes only when the chat feed holds every valid message exactly once, overwrites no slot and holds nothing else. Timings are printed and never asserted, among them each message's first send to the feed and how far the slowest stayed inside the senders' window, so runs of two commits compare on a number rather than on pass or fail.
 - **Bee 2.8.2 is built from source here, not taken from the released image.** The bed builds Bee v2.8.2 at commit `7e703f49` with `REACHABILITY_OVERRIDE_PUBLIC=true`, the setting fdp-play uses for its own local clusters. A released Bee never counts itself reachable on a private network, so it never stores a chunk pushed to it and every push loops between the nodes until it gives up. The source is pinned by commit and the Go image by digest.
 - **Bee 2.6.0 runs as the released image**, the control that shows that failure.
 - **What a run keeps:** every node's whole log, and each node's status, peer statuses and topology, go into `test-results/`, which git ignores.
