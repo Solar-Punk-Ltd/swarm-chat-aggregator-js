@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import { WaitAbandoned, waitFor } from './cluster.mjs';
 import { FeedFollower } from './feed.mjs';
 import { FeedLedger, isClean } from './ledger.mjs';
-import { parseChatMessage, PayloadFormat, payloadsFor, randomKey } from './payloads.mjs';
+import { parsePayload, PayloadFormat, payloadsFor, randomKey } from './payloads.mjs';
 import { describeSendError, GsocSender, SendOutcome } from './sender.mjs';
 
 const decode = (bytes) => new TextDecoder().decode(bytes);
@@ -88,11 +88,11 @@ describe('payloads', () => {
     const payloads = payloadsFor(PayloadFormat.V8);
     const key = randomKey();
     const built = payloads.build(draft(key));
-    const accepted = parseChatMessage(built.bytes);
+    const accepted = parsePayload(built.bytes);
     assert.ok(accepted.ok);
     assert.equal(accepted.message.id, built.id);
-    assert.equal(parseChatMessage(payloads.forge(draft(key)).bytes).reason, 'signature');
-    assert.equal(parseChatMessage(payloads.malformed('chat-bed-test')).ok, false);
+    assert.equal(parsePayload(payloads.forge(draft(key)).bytes).reason, 'signature');
+    assert.equal(parsePayload(payloads.malformed('chat-bed-test')).ok, false);
   });
 
   it('v6 builds 6.2.8 shape, and a forgery claims an address other than its signer', () => {

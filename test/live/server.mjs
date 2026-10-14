@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { WaitAbandoned, waitFor } from './cluster.mjs';
+import { SITE_ORIGIN } from './payloads.mjs';
 
 export const ServerKind = { MASTER: 'master', EVENT: 'event' };
 
@@ -42,8 +43,7 @@ const ENVIRONMENT = {
     GSOC_KEY: s.gsocKey,
     GSOC_IDENTIFIER: s.gsocIdentifier,
     CHAT_TOPIC_PATTERN: s.chatTopicPattern,
-    // The bed's senders send as guests, so no binding is checked against it.
-    CHAT_SITE_ORIGIN: 'https://chat.example.com',
+    CHAT_SITE_ORIGIN: SITE_ORIGIN,
     HEALTH_PORT: String(s.port),
     HEARTBEAT_INTERVAL_MS: '2000',
     HEARTBEAT_STALE_MS: '10000',
