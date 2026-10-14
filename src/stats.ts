@@ -4,6 +4,7 @@ export const DropReason = {
   NotJson: 'not-json',
   Shape: 'shape',
   Signature: 'signature',
+  Binding: 'binding',
   ChatNotAllowed: 'chat-not-allowed',
   ChatLimit: 'chat-limit',
   Clock: 'clock',

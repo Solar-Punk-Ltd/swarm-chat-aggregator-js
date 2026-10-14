@@ -1,6 +1,6 @@
 # Swarm Chat Aggregator
 
-The chat server for [swarm-chat-js](https://github.com/Solar-Punk-Ltd/swarm-chat-js) 7. Browsers send chat
+The chat server for [swarm-chat-js](https://github.com/Solar-Punk-Ltd/swarm-chat-js) 8. Browsers send chat
 messages as GSOC writes to one inbox address. This server listens on that inbox, checks every message, and
 publishes each accepted one into its chat's Swarm feed, which browsers read. The browser only ever talks to
 Swarm, through a gateway or its own Bee node.
@@ -11,8 +11,12 @@ Swarm, through a gateway or its own Bee node.
    address's neighbourhood. Every chat arrives through this one inbox, and the message's own `topic` says
    which chat it belongs to.
 2. **Checking.** Each payload is checked by the library's message module (`@solarpunkltd/swarm-chat-js/message`):
-   at most 2,048 bytes, UTF-8 JSON of the version 7 shape, and a signature that recovers the sender's `addr`.
-   Then the server checks that the chat is allowed, that the sender's clock `ts` is within a day of its own,
+   at most 3,072 bytes, UTF-8 JSON of the version 8 shape, a signature that recovers the sender's `addr`, and,
+   when the message carries a Swarm ID binding, a binding that names this `addr` and recovers an account. A
+   message of any other version is refused as `shape`, and one whose binding fails is refused as `binding`. A
+   binding must also name the site in `CHAT_SITE_ORIGIN`, since the server serves one site, so a sender signed in
+   on another site cannot carry that identity into these chats. `CHAT_SITE_ORIGIN` is required, and a binding for
+   `http://localhost` is accepted only when it names that local origin, as a development build does. Then the server checks that the chat is allowed, that the sender's clock `ts` is within a day of its own,
    that the message is not a duplicate of one it already took (by `addr` and `id`), and that the chat and the
    sender are within their rates. Every drop is counted by its reason.
 3. **Publishing.** Each chat has its own queue and publishes one message per feed slot, at indices 0, 1, 2 and
@@ -31,17 +35,40 @@ Written to slot `seq` of the chat's feed, always under 4,096 bytes so Bee never 
 
 | Field     | Meaning                                                                          |
 | :-------- | :------------------------------------------------------------------------------- |
-| `v`       | `7`                                                                              |
+| `v`       | `8`                                                                              |
 | `seq`     | the message's number in this chat, equal to the feed index                       |
 | `at`      | the server's receive time in milliseconds, the time a viewer shows               |
-| `msg`     | the message exactly as received and verified                                     |
+| `msg`     | the message exactly as received and verified, every field kept                   |
 | `history` | `{ref, toSeq}` of the newest saved history file, or `null` before the first save |
 
 The link trails by however many messages were published while the previous save was running.
 
+### The message
+
+`msg` is the library's version 8 chat message, published field for field as it arrived. The server adds nothing
+to it, and the entry around it adds only `seq` and `at` beside the `v` and `history` every entry has.
+
+| Field    | Meaning                                                                                  |
+| :------- | :--------------------------------------------------------------------------------------- |
+| `v`      | `8`                                                                                      |
+| `topic`  | the chat, 1 to 128 characters                                                            |
+| `id`     | the message id, 32 lowercase hex characters, which with `addr` makes the duplicate check |
+| `type`   | `text`, `thread` or `reaction`                                                           |
+| `target` | the id a thread reply or a reaction refers to, empty for a text message                  |
+| `text`   | 1 to 500 characters                                                                      |
+| `name`   | the display name, 1 to 20 characters                                                     |
+| `addr`   | the sender's chat address, 40 lowercase hex characters                                   |
+| `ts`     | the sender's clock in milliseconds, within a day of the server's                         |
+| `via`    | who paid for the inbox write, `gateway` or `own-stamp`                                   |
+| `own`    | whether the sender also keeps a copy in a feed of its own                                |
+| `idb`    | the sender's Swarm ID binding `{msg, sig}`, only for a signed-in sender                  |
+| `sig`    | the sender's signature over every field above, 130 lowercase hex characters              |
+
+Every field but `sig` is signed, `via`, `own` and `idb` included, so none can change on the way.
+
 ### The history file
 
-An ordinary Swarm upload of JSON: `{v: 7, topic, fromSeq, toSeq, messages: [{seq, at, msg}], prev}`. One save
+An ordinary Swarm upload of JSON: `{v: 8, topic, fromSeq, toSeq, messages: [{seq, at, msg}], prev}`. One save
 runs at a time per chat, and messages published meanwhile ride the next save, so a burst costs at most two
 saves, and a busy chat saves at most once per `HISTORY_SAVE_INTERVAL_MS`, so history uploads do not crowd out
 the feed writes on the same node. A file closes at 1,000 messages or 512 KB, and the next one starts with `prev` pointing at it. Files are
@@ -129,7 +156,7 @@ that is written or never will be.
 A websocket dropped by a proxy never reports a close, so the server resubscribes whenever no frame has arrived
 for `RESUBSCRIBE_IDLE_MS`, opening the new subscription before closing the old one. It also sends itself a
 heartbeat every `HEARTBEAT_INTERVAL_MS` through the heartbeat node, which must be a different node from the
-listening one. Heartbeats are `{v: 7, type: "heartbeat", nonce}`, recognised before any chat message, matched
+listening one. Heartbeats are `{v: 8, type: "heartbeat", nonce}`, recognised before any chat message, matched
 against the nonces the server sent, counted, and never published.
 
 ### Health
@@ -166,45 +193,46 @@ feed's consistency, which the checkpoint keeps.
 Environment variables, read once at start. A missing or malformed one stops the server with exit code 2 and
 its name. A `.env` file in the working directory is read when it is there.
 
-| Variable                   | Default         | Meaning                                                                                                                             |
-| :------------------------- | :-------------- | :---------------------------------------------------------------------------------------------------------------------------------- |
-| `LISTEN_BEE_URL`           | required        | the Bee node the server subscribes on, in the inbox address's neighbourhood                                                         |
-| `WRITE_BEE_URL`            | required        | the Bee node that uploads feed entries and history files                                                                            |
-| `HEARTBEAT_BEE_URL`        | required        | a different Bee node that heartbeats are sent through, the one browsers send through                                                |
-| `WRITE_STAMP`              | required        | the postage batch id of the writing node, 64 hex characters                                                                         |
-| `HEARTBEAT_STAMP`          | required        | a batch id the heartbeat node accepts                                                                                               |
-| `FEED_KEY`                 | required        | the private key the chat feeds are written under, 64 hex characters                                                                 |
-| `GSOC_KEY`                 | required        | the inbox's private key, public by design since every browser signs with it                                                         |
-| `GSOC_IDENTIFIER`          | required        | the inbox's identifier string                                                                                                       |
-| `CHAT_TOPICS`              | one of the two  | the allowed chats, a comma-separated list of topics                                                                                 |
-| `CHAT_TOPIC_PATTERN`       | one of the two  | the allowed chats, a regular expression matched against the whole topic                                                             |
-| `MAX_ACTIVE_CHATS`         | `50`            | how many chats outside `CHAT_TOPICS` the server publishes at once, listed chats are not counted                                     |
-| `CHAT_IDLE_EVICT_MS`       | `600000`        | how long a chat outside `CHAT_TOPICS` must be quiet before it may be evicted to make room at the cap                                |
-| `RATE_WINDOW_MS`           | `60000`         | the window the two rates count in                                                                                                   |
-| `RATE_PER_CHAT`            | `600`           | messages per window in one chat                                                                                                     |
-| `RATE_PER_SENDER`          | `30`            | messages per window from one sender in one chat                                                                                     |
-| `QUEUE_LIMIT`              | `500`           | messages waiting per chat, past which more are dropped                                                                              |
-| `PUBLISH_WINDOW`           | `8`             | how many slots of one chat may be in flight at once, each with its own entry, confirmed in slot order                               |
-| `RESUBSCRIBE_IDLE_MS`      | `180000`        | the silence after which the server resubscribes                                                                                     |
-| `HEARTBEAT_INTERVAL_MS`    | `60000`         | how often a heartbeat is sent                                                                                                       |
-| `HEARTBEAT_STALE_MS`       | `180000`        | how long without a frame or a heartbeat before health answers 503, over the interval                                                |
-| `READ_RECHECK_MS`          | `1000`          | the gap between the two reads that confirm an empty slot, paid only where absence decides where a chat starts                       |
-| `REQUEST_TIMEOUT_MS`       | `30000`         | the longest any one Bee request may take                                                                                            |
-| `HISTORY_TIMEOUT_MS`       | `180000`        | the longest a history file's upload or download may take, a whole file with its parity rather than one chunk                        |
-| `HISTORY_TRAIL_LIMIT`      | `500`           | rows published since the last saved history file past which `/health` warns, since each one is in the checkpoint until a save lands |
-| `HISTORY_SAVE_INTERVAL_MS` | `5000`          | the least time between two history uploads of one chat while it is busy, a quiet chat saves at once                                 |
-| `RESUME_RETRY_MS`          | `30000`         | how long a chat whose head is unknown waits before trying again                                                                     |
-| `PUBLISH_ATTEMPTS`         | `6`             | attempts per history save, and feed-write attempts before a stalled slot turns health red                                           |
-| `RETRY_BASE_MS`            | `1000`          | the first retry delay, doubling up to 30 seconds                                                                                    |
-| `SHUTDOWN_DEADLINE_MS`     | `20000`         | how long a shutdown may spend publishing what is queued                                                                             |
-| `LOCK_REFRESH_MS`          | `5000`          | how often the lock holder refreshes the lock                                                                                        |
-| `LOCK_STALE_MS`            | `60000`         | how old a lock must be before a new start takes it over, over twice the refresh                                                     |
-| `MIN_CONNECTED_PEERS`      | `8`             | connected peers the writing node needs before a chat with no checkpoint starts at slot 0, 1 on a two-node test cluster              |
-| `CROSS_CHECK_TIMEOUT_MS`   | `10000`         | the timeout of the second node's read of slot 0 for a chat with no checkpoint                                                       |
-| `CHECKPOINT_DIR`           | `./checkpoints` | where the checkpoints and the lock live, a volume in a container                                                                    |
-| `NOTE_SLOT_MS`             | `2000`          | the length of a slot note's time slot, part of every note's address, so viewers must use the same value                             |
-| `NOTE_HEARTBEAT_MS`        | `30000`         | the longest an active chat goes without a note, at least `NOTE_SLOT_MS`, which bounds what a lost note costs a viewer               |
-| `HEALTH_PORT`              | `3000`          | the port of `GET /health`                                                                                                           |
+| Variable                   | Default         | Meaning                                                                                                                                                               |
+| :------------------------- | :-------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LISTEN_BEE_URL`           | required        | the Bee node the server subscribes on, in the inbox address's neighbourhood                                                                                           |
+| `WRITE_BEE_URL`            | required        | the Bee node that uploads feed entries and history files                                                                                                              |
+| `HEARTBEAT_BEE_URL`        | required        | a different Bee node that heartbeats are sent through, the one browsers send through                                                                                  |
+| `WRITE_STAMP`              | required        | the postage batch id of the writing node, 64 hex characters                                                                                                           |
+| `HEARTBEAT_STAMP`          | required        | a batch id the heartbeat node accepts                                                                                                                                 |
+| `FEED_KEY`                 | required        | the private key the chat feeds are written under, 64 hex characters                                                                                                   |
+| `GSOC_KEY`                 | required        | the inbox's private key, public by design since every browser signs with it                                                                                           |
+| `GSOC_IDENTIFIER`          | required        | the inbox's identifier string                                                                                                                                         |
+| `CHAT_TOPICS`              | one of the two  | the allowed chats, a comma-separated list of topics                                                                                                                   |
+| `CHAT_TOPIC_PATTERN`       | one of the two  | the allowed chats, a regular expression matched against the whole topic                                                                                               |
+| `CHAT_SITE_ORIGIN`         | required        | the site the chats are served for, such as `https://chat.example.com`, the only site whose Swarm ID bindings are accepted, https with a DNS host or http on localhost |
+| `MAX_ACTIVE_CHATS`         | `50`            | how many chats outside `CHAT_TOPICS` the server publishes at once, listed chats are not counted                                                                       |
+| `CHAT_IDLE_EVICT_MS`       | `600000`        | how long a chat outside `CHAT_TOPICS` must be quiet before it may be evicted to make room at the cap                                                                  |
+| `RATE_WINDOW_MS`           | `60000`         | the window the two rates count in                                                                                                                                     |
+| `RATE_PER_CHAT`            | `600`           | messages per window in one chat                                                                                                                                       |
+| `RATE_PER_SENDER`          | `30`            | messages per window from one sender in one chat                                                                                                                       |
+| `QUEUE_LIMIT`              | `500`           | messages waiting per chat, past which more are dropped                                                                                                                |
+| `PUBLISH_WINDOW`           | `8`             | how many slots of one chat may be in flight at once, each with its own entry, confirmed in slot order                                                                 |
+| `RESUBSCRIBE_IDLE_MS`      | `180000`        | the silence after which the server resubscribes                                                                                                                       |
+| `HEARTBEAT_INTERVAL_MS`    | `60000`         | how often a heartbeat is sent                                                                                                                                         |
+| `HEARTBEAT_STALE_MS`       | `180000`        | how long without a frame or a heartbeat before health answers 503, over the interval                                                                                  |
+| `READ_RECHECK_MS`          | `1000`          | the gap between the two reads that confirm an empty slot, paid only where absence decides where a chat starts                                                         |
+| `REQUEST_TIMEOUT_MS`       | `30000`         | the longest any one Bee request may take                                                                                                                              |
+| `HISTORY_TIMEOUT_MS`       | `180000`        | the longest a history file's upload or download may take, a whole file with its parity rather than one chunk                                                          |
+| `HISTORY_TRAIL_LIMIT`      | `500`           | rows published since the last saved history file past which `/health` warns, since each one is in the checkpoint until a save lands                                   |
+| `HISTORY_SAVE_INTERVAL_MS` | `5000`          | the least time between two history uploads of one chat while it is busy, a quiet chat saves at once                                                                   |
+| `RESUME_RETRY_MS`          | `30000`         | how long a chat whose head is unknown waits before trying again                                                                                                       |
+| `PUBLISH_ATTEMPTS`         | `6`             | attempts per history save, and feed-write attempts before a stalled slot turns health red                                                                             |
+| `RETRY_BASE_MS`            | `1000`          | the first retry delay, doubling up to 30 seconds                                                                                                                      |
+| `SHUTDOWN_DEADLINE_MS`     | `20000`         | how long a shutdown may spend publishing what is queued                                                                                                               |
+| `LOCK_REFRESH_MS`          | `5000`          | how often the lock holder refreshes the lock                                                                                                                          |
+| `LOCK_STALE_MS`            | `60000`         | how old a lock must be before a new start takes it over, over twice the refresh                                                                                       |
+| `MIN_CONNECTED_PEERS`      | `8`             | connected peers the writing node needs before a chat with no checkpoint starts at slot 0, 1 on a two-node test cluster                                                |
+| `CROSS_CHECK_TIMEOUT_MS`   | `10000`         | the timeout of the second node's read of slot 0 for a chat with no checkpoint                                                                                         |
+| `CHECKPOINT_DIR`           | `./checkpoints` | where the checkpoints and the lock live, a volume in a container                                                                                                      |
+| `NOTE_SLOT_MS`             | `2000`          | the length of a slot note's time slot, part of every note's address, so viewers must use the same value                                                               |
+| `NOTE_HEARTBEAT_MS`        | `30000`         | the longest an active chat goes without a note, at least `NOTE_SLOT_MS`, which bounds what a lost note costs a viewer                                                 |
+| `HEALTH_PORT`              | `3000`          | the port of `GET /health`                                                                                                                                             |
 
 Seven settings replace variables of the 6.x server, which are no longer read:
 
@@ -271,7 +299,7 @@ and give it at least `LOCK_STALE_MS` to start after a kill.
 `pnpm lint`, `pnpm format`, `pnpm format:check`, `pnpm typecheck`, `pnpm test` and `pnpm build`. The tests run
 the whole server against a fake Bee over HTTP and a websocket, in `test/helpers/fakeBee.ts`.
 
-The message library is `@solarpunkltd/swarm-chat-js` 7.0.0 from npm, exempt from the one-week release age in
+The message library is `@solarpunkltd/swarm-chat-js` 8.0.0 from npm, exempt from the one-week release age in
 `pnpm-workspace.yaml` because it is our own package.
 
 ## Live test bed

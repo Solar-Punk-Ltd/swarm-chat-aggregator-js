@@ -1,10 +1,10 @@
-import { type ChatMessage, parseChatMessage } from '@solarpunkltd/swarm-chat-js/message';
+import { type ChatMessage, type VerifyOptions, parseChatMessage } from '@solarpunkltd/swarm-chat-js/message';
 
 import type { ChatPublisher } from './chat.js';
 import { type SentNonces, heartbeatNonce } from './heartbeat.js';
 import type { Logger } from './libs/logger.js';
 import { RateLimiter } from './rate.js';
-import { type Settings, isAllowedChat } from './settings.js';
+import { type Settings, isAllowedChat, isLocalHttpOrigin } from './settings.js';
 import { DropReason, type Stats } from './stats.js';
 import { DAY } from './utils/constants.js';
 
@@ -14,10 +14,12 @@ export type IntakeHealth = { lastHeartbeatReceivedAt: number | null };
 export class Intake {
   private readonly perChat: RateLimiter;
   private readonly perSender: RateLimiter;
+  private readonly verify: VerifyOptions;
   private lastHeartbeatReceivedAt: number | null = null;
 
   constructor(
     private readonly allowed: Settings['allowedChats'],
+    siteOrigin: Settings['siteOrigin'],
     rates: Settings['rates'],
     private readonly sentNonces: SentNonces,
     private readonly chatFor: (topic: string) => ChatPublisher | undefined,
@@ -26,6 +28,7 @@ export class Intake {
   ) {
     this.perChat = new RateLimiter(rates.perChat, rates.windowMs);
     this.perSender = new RateLimiter(rates.perSender, rates.windowMs);
+    this.verify = { origin: siteOrigin, allowLocalHttp: isLocalHttpOrigin(siteOrigin) };
   }
 
   health(): IntakeHealth {
@@ -39,7 +42,7 @@ export class Intake {
       return;
     }
     this.stats.received += 1;
-    const check = parseChatMessage(payload);
+    const check = parseChatMessage(payload, this.verify);
     if (!check.ok) {
       this.drop(check.reason, check.detail);
       return;

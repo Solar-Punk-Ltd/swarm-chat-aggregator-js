@@ -17,13 +17,12 @@ const READ_TIMEOUT_MS = 20_000;
  * every known slot again at the end, which is how an overwritten slot shows.
  */
 export class FeedFollower {
-  /** @param {{format: string, reader?: {downloadPayload: Function}, beeUrl?: string, owner?: string, topic?: string}} options */
-  constructor({ format, reader, beeUrl, owner, topic }) {
+  /** @param {{reader?: {downloadPayload: Function}, beeUrl?: string, owner?: string, topic?: string}} options */
+  constructor({ reader, beeUrl, owner, topic }) {
     const feed = reader ? null : new Bee(beeUrl).feed;
     this.readerForOneCall = reader
       ? () => reader
       : () => feed.makeReader(Topic.fromString(topic), owner, { signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
-    this.format = format;
     this.ledger = new FeedLedger();
   }
 
@@ -37,7 +36,7 @@ export class FeedFollower {
       } catch {
         return null;
       }
-      return messageIdOf(this.format, entry);
+      return messageIdOf(entry);
     } catch (error) {
       if (isAbsent(error)) return undefined;
       throw error;

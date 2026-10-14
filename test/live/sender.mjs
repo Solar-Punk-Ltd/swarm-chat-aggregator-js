@@ -1,7 +1,5 @@
 import { Bee, Identifier } from '@ethersphere/bee-js';
 
-import { PayloadFormat } from './payloads.mjs';
-
 export const SendOutcome = { SENT: 'sent', CONFIRMED: 'confirmed', FAILED: 'failed', REFUSED: 'refused' };
 
 /** A write the node refused, as one line: its HTTP status and what the node said. */
@@ -11,9 +9,9 @@ export function describeSendError(error) {
   return `${status} ${said}`.slice(0, 240);
 }
 
-/** 6.2.8's retryAwaitableAsync defaults: three retries, 250 ms apart, on a failed send only. */
-const V6_RETRIES = 3;
-const V6_RETRY_DELAY_MS = 250;
+/** How often a one-off write is retried after it fails, and how far apart. */
+const ONE_OFF_RETRIES = 3;
+const ONE_OFF_RETRY_DELAY_MS = 250;
 
 /** bee-js 13.1 ignores its timeout option, so every write carries a signal of its own. */
 const WRITE_TIMEOUT_MS = 30_000;
@@ -21,27 +19,15 @@ const WRITE_TIMEOUT_MS = 30_000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Writes payloads to the chat's GSOC address as a browser does, never deferred. A v6 sender behaves like library
- * 6.2.8 and never checks the feed. A v7 sender behaves like 7.0: the message stays pending until it is read back
- * from the feed, and the identical bytes are sent again every `resendIntervalMs`, at most `resendAttempts` times.
+ * Writes payloads to the chat's GSOC address as a browser does, never deferred. A message stays pending until it is
+ * read back from the feed, and the identical bytes are sent again every `resendIntervalMs`, at most `resendAttempts` times.
  */
 export class GsocSender {
-  constructor({
-    beeUrl,
-    messaging,
-    stamp,
-    gsocKey,
-    gsocIdentifier,
-    format,
-    resendIntervalMs,
-    resendAttempts,
-    isPublished,
-  }) {
+  constructor({ beeUrl, messaging, stamp, gsocKey, gsocIdentifier, resendIntervalMs, resendAttempts, isPublished }) {
     this.messaging = messaging ?? new Bee(beeUrl).messaging;
     this.stamp = stamp;
     this.gsocKey = gsocKey;
     this.identifier = Identifier.fromString(gsocIdentifier);
-    this.format = format;
     this.resendIntervalMs = resendIntervalMs;
     this.resendAttempts = resendAttempts;
     this.isPublished = isPublished;
@@ -60,8 +46,8 @@ export class GsocSender {
       try {
         return await this.write(bytes);
       } catch (error) {
-        if (retry >= V6_RETRIES) throw error;
-        await sleep(V6_RETRY_DELAY_MS);
+        if (retry >= ONE_OFF_RETRIES) throw error;
+        await sleep(ONE_OFF_RETRY_DELAY_MS);
       }
     }
   }
@@ -73,8 +59,6 @@ export class GsocSender {
   }
 
   async send({ id, bytes }) {
-    if (this.format === PayloadFormat.V6) return this.sendOnce(bytes);
-
     await this.writeTolerated(bytes);
     for (let resend = 0; ; resend++) {
       await sleep(this.resendIntervalMs);
@@ -84,7 +68,7 @@ export class GsocSender {
     }
   }
 
-  /** A failed write of a pending v7 message is covered by the next resend, as a failed delivery is. */
+  /** A failed write of a pending message is covered by the next resend, as a failed delivery is. */
   async writeTolerated(bytes) {
     try {
       await this.write(bytes);
