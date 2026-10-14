@@ -79,6 +79,10 @@ describe('CHAT_SITE_ORIGIN', () => {
     expect(parseSettings({ ...valid(), CHAT_SITE_ORIGIN: 'http://localhost:5173' }).siteOrigin).toBe(
       'http://localhost:5173',
     );
+    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGIN: 'http://[::1]:5173' }).siteOrigin).toBe('http://[::1]:5173');
+    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGIN: 'https://bücher.example' }).siteOrigin).toBe(
+      'https://xn--bcher-kva.example',
+    );
   });
 
   test('refuses anything that is not a bare origin a binding could name', () => {
@@ -89,6 +93,10 @@ describe('CHAT_SITE_ORIGIN', () => {
       'https://user@chat.example.com',
       'http://chat.example.com',
       'ftp://chat.example.com',
+      'https://chat_room.example.com',
+      'https://chat.example.com.',
+      'https://[::1]',
+      'https://[2001:db8::1]:8443',
     ]) {
       expect(problemsOf({ ...valid(), CHAT_SITE_ORIGIN: value })[0], value).toMatch(/^CHAT_SITE_ORIGIN/);
     }
