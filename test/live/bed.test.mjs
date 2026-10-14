@@ -1,4 +1,6 @@
 // The bed's own logic against a fake Bee: no cluster, no network.
+//
+// node:test's describe and it return promises that its runner awaits itself, so each call is marked void.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
@@ -45,15 +47,15 @@ function sender(messaging, isPublished) {
   });
 }
 
-describe('FeedLedger', () => {
-  it('passes a feed holding every message once', () => {
+void describe('FeedLedger', () => {
+  void it('passes a feed holding every message once', () => {
     const ledger = new FeedLedger();
     ['a', 'b', 'c'].forEach((id, index) => ledger.record(index, id));
     assert.ok(isClean(ledger.verdict(['a', 'b', 'c'])));
     assert.equal(ledger.nextIndex, 3);
   });
 
-  it('says when the last of a set of messages first appeared, and null while one is missing', () => {
+  void it('says when the last of a set of messages first appeared, and null while one is missing', () => {
     const ledger = new FeedLedger();
     ledger.record(0, 'a', 1000);
     ledger.record(1, 'b', 3000);
@@ -62,7 +64,7 @@ describe('FeedLedger', () => {
     assert.equal(ledger.lastAppearedAt(['a', 'b', 'c']), null);
   });
 
-  it("spreads each message's first send to the feed and names its smallest margin to the senders' window", () => {
+  void it("spreads each message's first send to the feed and names its smallest margin to the senders' window", () => {
     const ledger = new FeedLedger();
     ledger.record(0, 'a', 11_000);
     ledger.record(1, 'b', 40_000);
@@ -83,7 +85,7 @@ describe('FeedLedger', () => {
     );
   });
 
-  it('names what is missing, duplicated, overwritten and foreign', () => {
+  void it('names what is missing, duplicated, overwritten and foreign', () => {
     const ledger = new FeedLedger();
     ledger.record(0, 'a');
     ledger.record(1, 'b');
@@ -102,8 +104,8 @@ describe('FeedLedger', () => {
   });
 });
 
-describe('payloads', () => {
-  it('builds a message the library accepts, and a forgery and a malformed payload it refuses', () => {
+void describe('payloads', () => {
+  void it('builds a message the library accepts, and a forgery and a malformed payload it refuses', () => {
     const key = randomKey();
     const built = payloads.build(draft(key));
     const accepted = parsePayload(built.bytes);
@@ -114,8 +116,8 @@ describe('payloads', () => {
   });
 });
 
-describe('FeedFollower', () => {
-  it('follows a feed forward and sees a slot overwritten on the reread', async () => {
+void describe('FeedFollower', () => {
+  void it('follows a feed forward and sees a slot overwritten on the reread', async () => {
     const feed = fakeFeed([{ msg: { id: 'a' } }, { msg: { id: 'b' } }]);
     const follower = new FeedFollower({ reader: feed });
     await follower.catchUp();
@@ -131,8 +133,8 @@ describe('FeedFollower', () => {
   });
 });
 
-describe('GsocSender', () => {
-  it('resends the identical bytes until the message is read back', async () => {
+void describe('GsocSender', () => {
+  void it('resends the identical bytes until the message is read back', async () => {
     const messaging = fakeMessaging();
     let reads = 0;
     const outcome = await sender(messaging, async () => ++reads > 2).send({
@@ -144,7 +146,7 @@ describe('GsocSender', () => {
     assert.ok(messaging.sent.every((bytes) => bytes.join() === '1,2,3'));
   });
 
-  it('gives up after its resends and reports the message failed', async () => {
+  void it('gives up after its resends and reports the message failed', async () => {
     const messaging = fakeMessaging();
     const outcome = await sender(messaging, async () => false).send({
       id: 'a',
@@ -154,7 +156,7 @@ describe('GsocSender', () => {
     assert.equal(messaging.sent.length, 6);
   });
 
-  it('sends a one-off payload once, retrying only a failed write, and never reads the feed', async () => {
+  void it('sends a one-off payload once, retrying only a failed write, and never reads the feed', async () => {
     const messaging = fakeMessaging({ failFirst: 2 });
     const outcome = await sender(messaging, async () => {
       throw new Error('a one-off send must not read the feed');
@@ -164,8 +166,8 @@ describe('GsocSender', () => {
   });
 });
 
-describe('waitFor', () => {
-  it('retries a probe that throws an ordinary error until it answers', async () => {
+void describe('waitFor', () => {
+  void it('retries a probe that throws an ordinary error until it answers', async () => {
     let calls = 0;
     const value = await waitFor(
       'a flaky answer',
@@ -180,7 +182,7 @@ describe('waitFor', () => {
     assert.equal(calls, 3);
   });
 
-  it('stops at once when the probe says there is nothing left to wait for', async () => {
+  void it('stops at once when the probe says there is nothing left to wait for', async () => {
     let calls = 0;
     const started = Date.now();
     await assert.rejects(
@@ -199,8 +201,8 @@ describe('waitFor', () => {
   });
 });
 
-describe('describeSendError', () => {
-  it('names the status and what the node said, and copes with an error that has neither', () => {
+void describe('describeSendError', () => {
+  void it('names the status and what the node said, and copes with an error that has neither', () => {
     const refused = Object.assign(new Error('Bad Request: chunk write error'), {
       status: 400,
       responseBody: { code: 400, message: 'chunk write error' },
