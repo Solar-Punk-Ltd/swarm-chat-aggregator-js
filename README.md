@@ -11,7 +11,7 @@ Swarm, through a gateway or its own Bee node.
    address's neighbourhood. Every chat arrives through this one inbox, and the message's own `topic` says
    which chat it belongs to.
 2. **Checking.** Each payload is checked by the library's message module (`@solarpunkltd/swarm-chat-js/message`):
-   at most 3,072 bytes, UTF-8 JSON of the version 8 shape, a signature that recovers the sender's `addr`, and,
+   at most 3,072 bytes, UTF-8 JSON of the version 9 shape, a signature that recovers the sender's `addr`, and,
    when the message carries a Swarm ID binding, a binding that names this `addr` and recovers an account. A
    message of any other version is refused as `shape`, and one whose binding fails is refused as `binding`. A
    binding must also name the site in `CHAT_SITE_ORIGIN`, since the server serves one site, so a sender signed in
@@ -35,7 +35,7 @@ Written to slot `seq` of the chat's feed, always under 4,096 bytes so Bee never 
 
 | Field     | Meaning                                                                          |
 | :-------- | :------------------------------------------------------------------------------- |
-| `v`       | `8`                                                                              |
+| `v`       | `9`                                                                              |
 | `seq`     | the message's number in this chat, equal to the feed index                       |
 | `at`      | the server's receive time in milliseconds, the time a viewer shows               |
 | `msg`     | the message exactly as received and verified, every field kept                   |
@@ -45,12 +45,12 @@ The link trails by however many messages were published while the previous save 
 
 ### The message
 
-`msg` is the library's version 8 chat message, published field for field as it arrived. The server adds nothing
+`msg` is the library's version 9 chat message, published field for field as it arrived. The server adds nothing
 to it, and the entry around it adds only `seq` and `at` beside the `v` and `history` every entry has.
 
 | Field    | Meaning                                                                                           |
 | :------- | :------------------------------------------------------------------------------------------------ |
-| `v`      | `8`                                                                                               |
+| `v`      | `9`                                                                                               |
 | `topic`  | the chat, 1 to 128 characters                                                                     |
 | `id`     | the message id, 32 lowercase hex characters, which with `addr` makes the duplicate check          |
 | `type`   | `text`, `thread` or `reaction`                                                                    |
@@ -68,7 +68,7 @@ Every field but `sig` is signed, `via`, `idb` and `wl` included, so none can cha
 
 ### The history file
 
-An ordinary Swarm upload of JSON: `{v: 8, topic, fromSeq, toSeq, messages: [{seq, at, msg}], prev}`. One save
+An ordinary Swarm upload of JSON: `{v: 9, topic, fromSeq, toSeq, messages: [{seq, at, msg}], prev}`. One save
 runs at a time per chat, and messages published meanwhile ride the next save, so a burst costs at most two
 saves, and a busy chat saves at most once per `HISTORY_SAVE_INTERVAL_MS`, so history uploads do not crowd out
 the feed writes on the same node. A file closes at 1,000 messages or 512 KB, and the next one starts with `prev` pointing at it. Files are
@@ -156,7 +156,7 @@ that is written or never will be.
 A websocket dropped by a proxy never reports a close, so the server resubscribes whenever no frame has arrived
 for `RESUBSCRIBE_IDLE_MS`, opening the new subscription before closing the old one. It also sends itself a
 heartbeat every `HEARTBEAT_INTERVAL_MS` through the heartbeat node, which must be a different node from the
-listening one. Heartbeats are `{v: 8, type: "heartbeat", nonce}`, recognised before any chat message, matched
+listening one. Heartbeats are `{v: 9, type: "heartbeat", nonce}`, recognised before any chat message, matched
 against the nonces the server sent, counted, and never published.
 
 ### Health

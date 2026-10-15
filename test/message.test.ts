@@ -37,7 +37,7 @@ function boundMessage(overrides: Parameters<typeof message>[0] = {}): SignedChat
   return message({ idb: BOUND_SITE_BINDING, ...overrides }, chatKeyFor(BOUND_SITE));
 }
 
-describe('message version 8', () => {
+describe('message version 9', () => {
   test('publishes a guest message field for field, adding only seq and at', async () => {
     const server = await rig.startServer();
     const sent = message({ via: 'own-stamp' });
