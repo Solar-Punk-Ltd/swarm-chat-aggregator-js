@@ -1,6 +1,6 @@
 # Swarm Chat Aggregator
 
-The chat server for [swarm-chat-js](https://github.com/Solar-Punk-Ltd/swarm-chat-js) 8. Browsers send chat
+The chat server for [swarm-chat-js](https://github.com/Solar-Punk-Ltd/swarm-chat-js) 9. Browsers send chat
 messages as GSOC writes to one inbox address. This server listens on that inbox, checks every message, and
 publishes each accepted one into its chat's Swarm feed, which browsers read. The browser only ever talks to
 Swarm, through a gateway or its own Bee node.
@@ -48,23 +48,23 @@ The link trails by however many messages were published while the previous save 
 `msg` is the library's version 8 chat message, published field for field as it arrived. The server adds nothing
 to it, and the entry around it adds only `seq` and `at` beside the `v` and `history` every entry has.
 
-| Field    | Meaning                                                                                  |
-| :------- | :--------------------------------------------------------------------------------------- |
-| `v`      | `8`                                                                                      |
-| `topic`  | the chat, 1 to 128 characters                                                            |
-| `id`     | the message id, 32 lowercase hex characters, which with `addr` makes the duplicate check |
-| `type`   | `text`, `thread` or `reaction`                                                           |
-| `target` | the id a thread reply or a reaction refers to, empty for a text message                  |
-| `text`   | 1 to 500 characters                                                                      |
-| `name`   | the display name, 1 to 20 characters                                                     |
-| `addr`   | the sender's chat address, 40 lowercase hex characters                                   |
-| `ts`     | the sender's clock in milliseconds, within a day of the server's                         |
-| `via`    | who paid for the inbox write, `gateway` or `own-stamp`                                   |
-| `own`    | whether the sender also keeps a copy in a feed of its own                                |
-| `idb`    | the sender's Swarm ID binding `{msg, sig}`, only for a signed-in sender                  |
-| `sig`    | the sender's signature over every field above, 130 lowercase hex characters              |
+| Field    | Meaning                                                                                           |
+| :------- | :------------------------------------------------------------------------------------------------ |
+| `v`      | `8`                                                                                               |
+| `topic`  | the chat, 1 to 128 characters                                                                     |
+| `id`     | the message id, 32 lowercase hex characters, which with `addr` makes the duplicate check          |
+| `type`   | `text`, `thread` or `reaction`                                                                    |
+| `target` | the id a thread reply or a reaction refers to, empty for a text message                           |
+| `text`   | 1 to 500 characters                                                                               |
+| `name`   | the display name, 1 to 20 characters                                                              |
+| `addr`   | the sender's chat address, 40 lowercase hex characters                                            |
+| `ts`     | the sender's clock in milliseconds, within a day of the server's                                  |
+| `via`    | who paid for the inbox write, `gateway` or `own-stamp`                                            |
+| `idb`    | the sender's Swarm ID binding `{msg, sig}`, only for a signed-in sender                           |
+| `wl`     | the sender's wallet link `{msg, wsig, asig}`, only beside `idb`, for a sender who linked a wallet |
+| `sig`    | the sender's signature over every field above, 130 lowercase hex characters                       |
 
-Every field but `sig` is signed, `via`, `own` and `idb` included, so none can change on the way.
+Every field but `sig` is signed, `via`, `idb` and `wl` included, so none can change on the way.
 
 ### The history file
 
@@ -304,7 +304,7 @@ writing node that pushes one chunk at a time, and prints where the time went: th
 writes, receipt to write, each message's first send to the feed against the senders' 60 s window, and the chunks
 the node pushed. It asserts only that every message landed once, and it stays out of `pnpm test`.
 
-The message library is `@solarpunkltd/swarm-chat-js` 8.0.0 from npm, exempt from the one-week release age in
+The message library is `@solarpunkltd/swarm-chat-js` 9.0.0 from npm, exempt from the one-week release age in
 `pnpm-workspace.yaml` because it is our own package.
 
 ## Live test bed
