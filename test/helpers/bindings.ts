@@ -93,7 +93,6 @@ export function signedWithBinding(
     addr: new PrivateKey(key).publicKey().address().toHex(),
     ts: overrides.ts ?? Date.now(),
     via: overrides.via ?? 'gateway',
-    own: overrides.own ?? false,
     idb,
   };
   const message: ChatMessage = { ...unsigned, sig: new PrivateKey(key).sign(signedBytes(unsigned)).toHex() };
