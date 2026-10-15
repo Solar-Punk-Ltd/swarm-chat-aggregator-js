@@ -8,7 +8,7 @@ import { Bee, Bytes, FeedIndex, Identifier, Topic } from '@ethersphere/bee-js';
 import { BEE_ROLES, beeBuildNote, Cluster, httpJson, removeLeftovers } from './cluster.mjs';
 import { randomKey } from './payloads.mjs';
 
-const BEE_VERSIONS = (process.env.BED_BEE_VERSIONS ?? '2.8.2,2.6.0').split(',').map((v) => v.trim());
+const BEE_VERSIONS = (process.env.BED_BEE_VERSIONS ?? '2.8.3,2.8.2,2.6.0').split(',').map((v) => v.trim());
 /**
  * The versions this run expects to fail. 2.6.0 runs as the released image, which never stores a pushed chunk on a
  * private network, so it is the control that shows the failure the built 2.8.2 arm exists to get past.
