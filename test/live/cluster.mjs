@@ -130,6 +130,7 @@ function chainVersionOf(image) {
  */
 export const BEE_BUILDS = {
   '2.8.2': { tag: 'v2.8.2', commit: '7e703f495c929eecde5155734760b5611ad4fd0f' },
+  '2.8.3': { tag: 'v2.8.3', commit: '8e9bb91413a133c6874cc2dee0fb1bfb81c167fa' },
 };
 /** Said at the start of every run that uses a built Bee, so no reader takes it for the released binary. */
 export function beeBuildNote(beeVersion) {
