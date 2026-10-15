@@ -39,7 +39,7 @@ function boundMessage(overrides: Parameters<typeof message>[0] = {}): SignedChat
 describe('message version 8', () => {
   test('publishes a guest message field for field, adding only seq and at', async () => {
     const server = await rig.startServer();
-    const sent = message({ via: 'own-stamp', own: true });
+    const sent = message({ via: 'own-stamp' });
     await rig.send(sent);
     await waitFor(() => server.stats.published === 1, 5000, 'published');
     await waitFor(() => server.healthReport().chats[0]?.history?.toSeq === 0, 5000, 'history saved');
@@ -63,7 +63,7 @@ describe('message version 8', () => {
 
   test('refuses a version 7 message as shape', async () => {
     const server = await rig.startServer();
-    const { via: _via, own: _own, ...rest } = message().message;
+    const { via: _via, ...rest } = message().message;
     await rig.send(encoder.encode(JSON.stringify({ ...rest, v: 7 })));
     await waitFor(() => server.stats.received === 1, 5000, 'the frame');
     await waitFor(() => server.stats.dropped.get('shape') === 1, 5000, 'the refusal');
