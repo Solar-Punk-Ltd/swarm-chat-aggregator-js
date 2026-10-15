@@ -17,7 +17,7 @@ import { ServerProcess } from './server.mjs';
 const { values: args } = parseArgs({
   options: {
     only: { type: 'string', default: Object.keys(SCENARIOS).join(',') },
-    bee: { type: 'string', default: '2.8.2' },
+    bee: { type: 'string', default: '2.8.3' },
     'resend-interval-ms': { type: 'string', default: '10000' },
     'resend-attempts': { type: 'string', default: '5' },
   },
