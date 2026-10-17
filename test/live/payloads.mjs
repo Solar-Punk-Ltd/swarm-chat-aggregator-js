@@ -1,7 +1,12 @@
 // What a sender puts on the chat's GSOC address, plus the two kinds of bad payload B4 sends. This module is the
 // bed's only import of the chat library.
 import { PrivateKey } from '@ethersphere/bee-js';
-import { createChatMessage, encodeChatMessage, parseChatMessage } from '@solarpunkltd/swarm-chat-js/message';
+import {
+  MESSAGE_VERSION,
+  createChatMessage,
+  encodeChatMessage,
+  parseChatMessage,
+} from '@solarpunkltd/swarm-chat-js/message';
 
 /** The site the bed's server is configured for. Its senders send as guests, so no binding is checked against it. */
 export const SITE_ORIGIN = 'https://chat.example.com';
@@ -33,7 +38,7 @@ function forge(draft) {
 
 /** Bytes that name the chat's topic, so a server routes them there, and are not a message. */
 function malformed(topic) {
-  return encoder.encode(`{"topic":${JSON.stringify(topic)},"v":8,"text":`);
+  return encoder.encode(`{"topic":${JSON.stringify(topic)},"v":${MESSAGE_VERSION},"text":`);
 }
 
 export const payloads = { build, forge, malformed };

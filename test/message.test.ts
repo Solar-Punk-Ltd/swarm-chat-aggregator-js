@@ -8,6 +8,7 @@ import {
   LOCAL_SITE_BINDING,
   OTHER_SITE,
   OTHER_SITE_BINDING,
+  WALLET_LINK,
   chatKeyFor,
   signedWithBinding,
 } from './helpers/bindings.js';
@@ -36,10 +37,10 @@ function boundMessage(overrides: Parameters<typeof message>[0] = {}): SignedChat
   return message({ idb: BOUND_SITE_BINDING, ...overrides }, chatKeyFor(BOUND_SITE));
 }
 
-describe('message version 8', () => {
+describe('message version 9', () => {
   test('publishes a guest message field for field, adding only seq and at', async () => {
     const server = await rig.startServer();
-    const sent = message({ via: 'own-stamp', own: true });
+    const sent = message({ via: 'own-stamp' });
     await rig.send(sent);
     await waitFor(() => server.stats.published === 1, 5000, 'published');
     await waitFor(() => server.healthReport().chats[0]?.history?.toSeq === 0, 5000, 'history saved');
@@ -61,9 +62,26 @@ describe('message version 8', () => {
     expect(rig.entry(0)?.msg.idb).toStrictEqual(BOUND_SITE_BINDING);
   });
 
+  test('publishes a message carrying the sender wallet link unchanged', async () => {
+    const server = await rig.startServer();
+    const sent = boundMessage({ wl: WALLET_LINK });
+    await rig.send(sent);
+    await waitFor(() => server.stats.published === 1, 5000, 'published');
+    expect(rig.entry(0)?.msg).toStrictEqual(sent.message);
+    expect(rig.entry(0)?.msg.wl).toStrictEqual(WALLET_LINK);
+  });
+
+  test('refuses a message carrying the removed own field as shape', async () => {
+    const server = await rig.startServer();
+    await rig.send(encoder.encode(JSON.stringify({ ...message().message, own: false })));
+    await waitFor(() => server.stats.received === 1, 5000, 'the frame');
+    await waitFor(() => server.stats.dropped.get('shape') === 1, 5000, 'the refusal');
+    expect(rig.entry(0)).toBeUndefined();
+  });
+
   test('refuses a version 7 message as shape', async () => {
     const server = await rig.startServer();
-    const { via: _via, own: _own, ...rest } = message().message;
+    const { via: _via, ...rest } = message().message;
     await rig.send(encoder.encode(JSON.stringify({ ...rest, v: 7 })));
     await waitFor(() => server.stats.received === 1, 5000, 'the frame');
     await waitFor(() => server.stats.dropped.get('shape') === 1, 5000, 'the refusal');

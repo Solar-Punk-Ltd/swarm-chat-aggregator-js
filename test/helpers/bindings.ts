@@ -7,6 +7,7 @@ import {
   type ChatMessageDraft,
   type SignedChatMessage,
   type UnsignedChatMessage,
+  type WalletLink,
   MESSAGE_VERSION,
   encodeChatMessage,
   newMessageId,
@@ -46,6 +47,16 @@ export const LOCAL_SITE = 'http://localhost:5173';
 export const LOCAL_SITE_BINDING: ChatBinding = {
   msg: 'Swarm ID chat binding v1\nSite: http://localhost:5173\nChat address: 0xe8ba94db6fdfc694ff9dc9ccd07ef8fe5b7ed140\nDate: 2026-10-14T12:00:00.000Z',
   sig: '0xf0f5e7fc8a79e619fa0e0ec42c6179b7c3ffaa2e82b9d01bd448d643006088d01e2a34e8d17dc0595d471ed098aa5394e260858c72272868f540f66f117eeed51b',
+};
+
+/**
+ * A wallet link of FORK_ACCOUNT, copied from the library's `test/walletLinkVectors.ts` as released in 9.0.0. The
+ * fork made it, and the library accepts it only beside a binding of that account.
+ */
+export const WALLET_LINK: WalletLink = {
+  msg: 'Swarm ID wallet link v1\nI link this wallet to the Swarm ID account below, so sites may show my ENS name beside its messages.\nAccount: 0x1563915e194d8cfba1943570603f7606a3115508\nWallet: 0x5cbdd86a2fa8dc4bddd8a8f69dba48572eec07fb\nDate: 2026-10-15T12:01:00.000Z',
+  wsig: '0x8375ed13f2afa0b70f62f94f82012f52022028620fbdc90ea073990a1fbb23e03aa67b6d49b84651f4b1096c9106d25a971407dc02d3663ec1a1a65500a520ae1c',
+  asig: '0x8b253d455123dfb0a00c4ad56e0e65fffbb99850efcbe3fea85e2583034b3d8605e83f895c80e29eda6ff9ef481f3ad9090fad20d37508a6b29462ad9e2562891b',
 };
 
 const CHAT_KEY_LABEL = 'swarm-id chat key v1';
@@ -93,8 +104,8 @@ export function signedWithBinding(
     addr: new PrivateKey(key).publicKey().address().toHex(),
     ts: overrides.ts ?? Date.now(),
     via: overrides.via ?? 'gateway',
-    own: overrides.own ?? false,
     idb,
+    ...(overrides.wl ? { wl: overrides.wl } : {}),
   };
   const message: ChatMessage = { ...unsigned, sig: new PrivateKey(key).sign(signedBytes(unsigned)).toHex() };
   return { message, bytes: encodeChatMessage(message) };
