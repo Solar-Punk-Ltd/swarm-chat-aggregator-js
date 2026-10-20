@@ -5,7 +5,7 @@ Read by AI coding agents and by people working in this repository. `CLAUDE.md` i
 
 ## What this is
 
-The chat server for swarm-chat-js 9. It listens on one GSOC inbox, checks each chat message, and
+The chat server for the swarm-chat-js 9 client library. It listens on one GSOC inbox, checks each chat message, and
 publishes the accepted ones into each chat's Swarm feed, one slot per message, with a history file
 beside it. The README describes the behaviour, the feed entry, the history file and every setting.
 
@@ -31,7 +31,7 @@ sender signed in on one site could carry that identity into another site's chats
 - Never overwrite a slot holding bytes this server did not write. A slot is read before it is written after a
   resume, until a slot is confirmed, and before every attempt after a failed write. A running chat writes its
   next slot without reading it, because a read of an address not yet written makes Bee skip its peers for that
-  address for a minute, which delayed every new message for its viewers. Where absence decides where a chat
+  address for about a minute, which delays the message for its viewers once it is written. Where absence decides where a chat
   starts, a slot is absent only when two reads `READ_RECHECK_MS` apart answer 404 or 500.
 - Slot notes come from the library's message module. A note names only confirmed slots, and a failed note is
   never written again at its own address.
