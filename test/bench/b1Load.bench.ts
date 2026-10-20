@@ -6,8 +6,8 @@
 //
 //   pnpm bench
 //
-// BENCH_PUSH_MS is the node's push time per chunk before scaling. At its default of 40 the bench reproduced the box's
-// B1 shape on 2026-10-14: about 2 resends per message and the last message 48 to 60 s after its first send.
+// BENCH_PUSH_MS is the node's push time per chunk before scaling. At its default of 40 the bench matches the live
+// bed's B1 run: about 2 resends per message, and the last message 48 to 60 s after its first send.
 import { performance } from 'node:perf_hooks';
 
 import { Bee, Identifier, PrivateKey } from '@ethersphere/bee-js';

@@ -7,7 +7,7 @@ import { docker, ownContainerId, saveContainerLog } from './docker.mjs';
 
 export const BED_LABEL = 'swarm-chat-live-bed';
 
-/** The box brings back every test-results folder of a run as that run's artifact. */
+/** Where a run keeps its logs and node diagnostics, so CI can save the folder as the run's artifact. */
 export const RESULTS_DIR = 'test-results';
 
 /**
