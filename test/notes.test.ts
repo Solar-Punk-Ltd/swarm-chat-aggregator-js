@@ -92,9 +92,8 @@ describe('slot notes', () => {
     await publishOneAndRestart();
     const from = Date.now();
     await rig.startServer(NOTES);
-    await sleep(2 * HEARTBEAT_MS);
+    await waitFor(() => rig.notes(from, Date.now(), SLOT_MS).length >= 2, 5000, 'two notes');
     const notes = rig.notes(from, Date.now(), SLOT_MS);
-    expect(notes.length).toBeGreaterThanOrEqual(2);
     expect(notes.every(({ note }) => note.newest === 0)).toBe(true);
   });
 
