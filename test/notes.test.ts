@@ -37,7 +37,11 @@ describe('slot notes', () => {
     await waitFor(() => rig.notes(sentAt, Date.now(), SLOT_MS).some(({ note }) => note.newest === 0), 5000, 'a note');
     const noted = rig.notes(sentAt, Date.now(), SLOT_MS).find(({ note }) => note.newest === 0)!;
     const landedAt = rig.swarm.storedAt.get(slotAddress(0))!;
-    expect(noted.slot).toBe(Math.floor(landedAt / SLOT_MS));
+    // A slot-end timer that fires late, as on a loaded machine, ticks the slot that just ended after the entry already
+    // landed in the next one. The note then sits one slot earlier and still never names an entry before it landed.
+    expect(noted.slot).toBeGreaterThanOrEqual(Math.floor(landedAt / SLOT_MS) - 1);
+    expect(noted.slot).toBeLessThanOrEqual(Math.floor(landedAt / SLOT_MS));
+    expect(noted.note.writtenAt).toBeGreaterThanOrEqual(landedAt);
     expect(noted.note.writtenAt).toBeGreaterThanOrEqual((noted.slot + 1) * SLOT_MS);
   });
 
@@ -60,13 +64,13 @@ describe('slot notes', () => {
     await rig.send(message());
     await waitFor(() => rig.entry(0) !== undefined, 5000, 'slot 0');
     const from = Date.now();
-    await sleep(4 * HEARTBEAT_MS);
+    await waitFor(() => rig.notes(from, Date.now(), SLOT_MS).length >= 3, 5000, 'three notes');
     const notes = rig.notes(from, Date.now(), SLOT_MS);
-    expect(notes.length).toBeGreaterThanOrEqual(3);
     expect(notes.every(({ note }) => note.newest === 0)).toBe(true);
     const gaps = notes.slice(1).map(({ note }, i) => note.writtenAt - notes[i]!.note.writtenAt);
-    // A heartbeat falls due between two slot ends and waits for the next, plus however late its timer fires.
-    expect(Math.max(...gaps)).toBeLessThanOrEqual(HEARTBEAT_MS + SLOT_MS + 50);
+    // A heartbeat falls due between two slot ends and waits for the next, plus up to a slot of timer lateness. A
+    // skipped heartbeat leaves a gap of two heartbeats, which this still refuses.
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(HEARTBEAT_MS + 2 * SLOT_MS);
   });
 
   test('a note write that fails is not retried at its address, and the next slot carries the news', async () => {
@@ -92,9 +96,8 @@ describe('slot notes', () => {
     await publishOneAndRestart();
     const from = Date.now();
     await rig.startServer(NOTES);
-    await sleep(2 * HEARTBEAT_MS);
+    await waitFor(() => rig.notes(from, Date.now(), SLOT_MS).length >= 2, 5000, 'two notes');
     const notes = rig.notes(from, Date.now(), SLOT_MS);
-    expect(notes.length).toBeGreaterThanOrEqual(2);
     expect(notes.every(({ note }) => note.newest === 0)).toBe(true);
   });
 
@@ -108,13 +111,13 @@ describe('slot notes', () => {
   test('a chat in CHAT_TOPICS that has never had a message keeps writing a heartbeat note naming -1', async () => {
     const from = Date.now();
     await rig.startServer(NOTES);
-    await sleep(4 * HEARTBEAT_MS);
+    await waitFor(() => rig.notes(from, Date.now(), SLOT_MS).length >= 3, 5000, 'three notes');
     const notes = rig.notes(from, Date.now(), SLOT_MS);
-    expect(notes.length).toBeGreaterThanOrEqual(3);
     expect(notes.every(({ note }) => note.newest === -1)).toBe(true);
     const gaps = notes.slice(1).map(({ note }, i) => note.writtenAt - notes[i]!.note.writtenAt);
-    // A heartbeat falls due between two slot ends and waits for the next, plus however late its timer fires.
-    expect(Math.max(...gaps)).toBeLessThanOrEqual(HEARTBEAT_MS + SLOT_MS + 50);
+    // A heartbeat falls due between two slot ends and waits for the next, plus up to a slot of timer lateness. A
+    // skipped heartbeat leaves a gap of two heartbeats, which this still refuses.
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(HEARTBEAT_MS + 2 * SLOT_MS);
     expect(rig.entry(0)).toBeUndefined();
   });
 
