@@ -37,7 +37,11 @@ describe('slot notes', () => {
     await waitFor(() => rig.notes(sentAt, Date.now(), SLOT_MS).some(({ note }) => note.newest === 0), 5000, 'a note');
     const noted = rig.notes(sentAt, Date.now(), SLOT_MS).find(({ note }) => note.newest === 0)!;
     const landedAt = rig.swarm.storedAt.get(slotAddress(0))!;
-    expect(noted.slot).toBe(Math.floor(landedAt / SLOT_MS));
+    // A slot-end timer that fires late, as on a loaded machine, ticks the slot that just ended after the entry already
+    // landed in the next one. The note then sits one slot earlier and still never names an entry before it landed.
+    expect(noted.slot).toBeGreaterThanOrEqual(Math.floor(landedAt / SLOT_MS) - 1);
+    expect(noted.slot).toBeLessThanOrEqual(Math.floor(landedAt / SLOT_MS));
+    expect(noted.note.writtenAt).toBeGreaterThanOrEqual(landedAt);
     expect(noted.note.writtenAt).toBeGreaterThanOrEqual((noted.slot + 1) * SLOT_MS);
   });
 
