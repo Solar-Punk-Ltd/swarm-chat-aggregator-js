@@ -29,11 +29,14 @@ beside each video.
 - **A listening node**, the Bee node this server subscribes on. The inbox address must fall in its neighbourhood, which
   [Mining the inbox key](#mining-the-inbox-key) arranges.
 - **A writing node** with a postage batch, which uploads feed entries, history files and slot notes.
-- **A heartbeat node**, a different Bee node from the listening one, with a batch it accepts. The server sends itself a
-  test message through it every `HEARTBEAT_INTERVAL_MS`, a minute by default, to prove the inbox still works.
-- **A node for browsers to send through.** Browsers write to the inbox through a gateway or their own Bee node. That node
-  must not be the listening node. The heartbeat node is usually the one browsers send through, so the heartbeat tests
-  the same path.
+- **A heartbeat node** with a batch it accepts. The server sends itself a test message through it every
+  `HEARTBEAT_INTERVAL_MS`, a minute by default, to prove the inbox still works.
+- **A node for browsers to send through.** Browsers write to the inbox through a gateway or their own Bee node. The
+  heartbeat node is usually that same node, so the heartbeat tests the path messages take.
+- **Send through a different node from the listening one.** Bee accepts a write to the inbox on any node, but it hands
+  a write to the inbox's subscribers only when the chunk arrives from another node. A write made on the listening node
+  itself is sent on to a peer first, so the listener hears it only if it later syncs back. Messages and heartbeats
+  therefore go through a node other than the listening node.
 - **A feed key**, the private key the chat feeds are written under. Readers name its address as the chat's feed owner.
 - **Node 24**, or Docker.
 
@@ -169,8 +172,10 @@ Slot notes tell viewers which slots exist, so every read goes to an address that
   `/health`.
 - **What these checks cost.** They run only when a chat with no checkpoint is opened: at the start for a chat in
   `CHAT_TOPICS`, and on its first message for any other. In normal operation that is once in a chat's life. A restart or
-  an evicted chat resumes from its checkpoint without them, and a message in a running chat costs no read at all. A
-  fresh start waits one `READ_RECHECK_MS`, 1 second by default, plus about eight Bee requests.
+  an evicted chat resumes from its checkpoint without them, and a message in a running chat costs no read at all. Before a new chat writes its first message, the server makes six requests to Bee: the
+  newest-index lookup, two reads of slot 0 one `READ_RECHECK_MS` apart, the writing node's readiness, its peer count,
+  and one read of slot 0 through the listening node. So the first message of a new chat waits about one second, the
+  `READ_RECHECK_MS` default, plus however long those six requests take.
 - **A slot is absent** only when two reads, `READ_RECHECK_MS` apart, both answer 404 or 500, since Bee answers a chunk
   it could not find with either, depending on its version. Timeouts and gateway errors are failed reads, retried and
   never taken as absent. A slot is read twice only where absence decides where a chat starts.
@@ -295,7 +300,7 @@ The inbox key must place the inbox address in the listening node's neighbourhood
 pnpm mine --overlay <the listening node's overlay address> --identifier <GSOC_IDENTIFIER> --proximity 12
 ```
 
-The overlay address is the listening node's address in Swarm, shown by its `/addresses` endpoint. `--proximity` is how
+The overlay address is the listening node's address in Swarm, the `overlay` field of its `GET /addresses` answer. `--proximity` is how
 many leading bits the inbox address must share with it, 12 by default. The command prints the `GSOC_KEY` and
 `GSOC_IDENTIFIER` to set. Give the same key and identifier to the pages that use the library, as `gsocResourceId` and
 `gsocTopic`. The key is public by design, since every sender signs inbox writes with it.
