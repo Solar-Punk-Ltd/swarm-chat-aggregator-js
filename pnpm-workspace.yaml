@@ -17,3 +17,8 @@ minimumReleaseAgeExclude:
 allowBuilds:
   bufferutil: false
   utf-8-validate: false
+
+# Security pins. GHSA-mrhx-c7xc-m3w5: bee-js takes zod 4 by a range the lockfile held at 4.6.5. Exact, and only
+# below the fix, so it takes no release younger than the fix.
+overrides:
+  'zod@<4.6.6': 4.6.6
