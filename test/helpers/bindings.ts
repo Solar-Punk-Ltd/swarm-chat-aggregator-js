@@ -17,12 +17,12 @@ import {
 import { CHAT } from './harness.js';
 
 /**
- * Swarm ID chat bindings made by the Swarm ID fork for its test account, copied from the library's
+ * Swarm ID chat bindings made by Swarm ID (the solarpunk-id repository) for a test account, copied from the library's
  * `test/bindingVectors.ts` as released in 8.0.0 (ecfadff). Making one here would need EIP-191 personal_sign, which
  * bee-js does not offer.
  */
 
-// Test only. The fork's account key, which nobody holds funds with.
+// Test only. The test account's key, which nobody holds funds with.
 const FORK_ACCOUNT_KEY = '22'.repeat(32);
 
 export const FORK_ACCOUNT = '0x1563915e194d8cfba1943570603f7606a3115508';
@@ -41,7 +41,7 @@ export const OTHER_SITE_BINDING: ChatBinding = {
   sig: '0x9ac7b48626f8971e436126783fa8e1d9146cb108e224ade8cf08600b5f65117d7b296234c424d969ad08dad0b8a30f0612dbc1219b3471d6d066422fb20057cb1c',
 };
 
-/** Made by the fork with `allowLocalHttp`, as its development build signs one. */
+/** Made by Swarm ID with `allowLocalHttp`, as its development build signs one. */
 export const LOCAL_SITE = 'http://localhost:5173';
 
 export const LOCAL_SITE_BINDING: ChatBinding = {
@@ -68,7 +68,7 @@ function hmacSha256(keyHex: string, label: string): string {
 }
 
 /**
- * The chat key the fork gives its test account on `site`, as its `deriveChatKey` derives it: HMAC-SHA256 of
+ * The chat key Swarm ID gives the test account on `site`, as its `deriveChatKey` derives it: HMAC-SHA256 of
  * `swarm-id chat key v1` under the app secret, itself HMAC-SHA256 of the origin under the account key, asked again
  * under `/1`, `/2` and on while the result is not a valid secp256k1 private key.
  */
