@@ -23,8 +23,7 @@ sender signed in on one site could carry that identity into another site's chats
 
 - `master` is the base of this line. The `msrs` branch is another deployment's server and is never
   merged into or out of.
-- Pushes to `prod` and `test` deploy, and `docker-build` and `v*` tags build images. Nobody pushes those
-  without the owner's word.
+- Pushes to `docker-build` and `v*` tags build images. Nobody pushes those without a maintainer's approval.
 
 ## Rules that keep the feed safe
 
