@@ -23,4 +23,3 @@ test
 LICENSE
 Dockerfile
 .dockerignore
-ecosystem.config.js
