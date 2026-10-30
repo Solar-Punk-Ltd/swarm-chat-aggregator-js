@@ -49,10 +49,10 @@ beside each video.
    most 3,072 bytes, UTF-8 JSON of the version 9 shape, a signature that recovers the sender's `addr`, and, when the
    message carries a Swarm ID binding, a binding that names this `addr` and recovers an account. A message of any other
    version is refused as `shape`, and one whose binding fails is refused as `binding`.
-3. **One site.** A binding must also name the site in `CHAT_SITE_ORIGIN`, because the server serves the chats of one
-   site. So a sender signed in on another site cannot carry that identity into these chats. `CHAT_SITE_ORIGIN` is
-   required. A binding for `http://localhost` is accepted only when `CHAT_SITE_ORIGIN` names that local origin, as a
-   development build does.
+3. **Its own sites.** A binding must also name one of the sites in `CHAT_SITE_ORIGINS`, the pages these chats are
+   served from, such as a domain and a copy of the viewer on Swarm under an ENS name. So a sender signed in on any
+   other site cannot carry that identity into these chats. `CHAT_SITE_ORIGINS` is required. A binding for
+   `http://localhost` is accepted only when `CHAT_SITE_ORIGINS` lists that local origin, as a development build does.
 4. **Admission.** The server then checks that the chat is allowed, that the sender's clock `ts` is within a day of its
    own, that the message is not a duplicate of one it already took (by `addr` and `id`), and that the chat and the
    sender are within their rates. Every drop is counted by its reason.
@@ -246,7 +246,7 @@ A `.env` file in the working directory is read when it is there. `.env.sample` l
 | `GSOC_IDENTIFIER`          | required        | the inbox's identifier string                                                                                                                                                                                      |
 | `CHAT_TOPICS`              | one of the two  | the allowed chats, a comma-separated list of topics                                                                                                                                                                |
 | `CHAT_TOPIC_PATTERN`       | one of the two  | the allowed chats, a regular expression matched against the whole topic. Anyone can open a chat under a matching topic, up to `MAX_ACTIVE_CHATS`, so list your own chats in `CHAT_TOPICS` to keep them always open |
-| `CHAT_SITE_ORIGIN`         | required        | the site the chats are served for, such as `https://chat.example.com`, the only site whose Swarm ID bindings are accepted, https with a DNS host or http on localhost                                              |
+| `CHAT_SITE_ORIGINS`        | required        | the sites the chats are served for, comma-separated, such as `https://example.com,https://example.eth.limo`, the only sites whose Swarm ID bindings are accepted, each https with a DNS host or http on localhost  |
 | `MAX_ACTIVE_CHATS`         | `50`            | how many chats outside `CHAT_TOPICS` the server publishes at once, listed chats are not counted                                                                                                                    |
 | `CHAT_IDLE_EVICT_MS`       | `600000`        | how long a chat outside `CHAT_TOPICS` must be quiet before it may be evicted to make room at the cap                                                                                                               |
 | `RATE_WINDOW_MS`           | `60000`         | the window the two rates count in                                                                                                                                                                                  |
@@ -325,7 +325,7 @@ writing node that pushes one chunk at a time. It prints where the time went: the
 time from receipt to write, each message's first send to the feed against the senders' 60 second window, and the
 chunks the node pushed. It asserts only that every message landed once, and it is not part of `pnpm test`.
 
-The message library is `@solarpunkltd/swarm-chat-js` 9.0.0 from npm. `pnpm-workspace.yaml` installs no version younger
+The message library is `@solarpunkltd/swarm-chat-js` 10.0.0 from npm. `pnpm-workspace.yaml` installs no version younger
 than one week, and exempts this one package because the same team publishes it.
 
 ## Live test bed

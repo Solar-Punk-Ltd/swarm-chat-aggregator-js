@@ -19,7 +19,7 @@ export class Intake {
 
   constructor(
     private readonly allowed: Settings['allowedChats'],
-    siteOrigin: Settings['siteOrigin'],
+    siteOrigins: Settings['siteOrigins'],
     rates: Settings['rates'],
     private readonly sentNonces: SentNonces,
     private readonly chatFor: (topic: string) => ChatPublisher | undefined,
@@ -28,7 +28,7 @@ export class Intake {
   ) {
     this.perChat = new RateLimiter(rates.perChat, rates.windowMs);
     this.perSender = new RateLimiter(rates.perSender, rates.windowMs);
-    this.verify = { origin: siteOrigin, allowLocalHttp: isLocalHttpOrigin(siteOrigin) };
+    this.verify = { origins: siteOrigins, allowLocalHttp: siteOrigins.some(isLocalHttpOrigin) };
   }
 
   health(): IntakeHealth {

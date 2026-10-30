@@ -87,6 +87,29 @@ const siteOrigin = z
     return url.origin;
   });
 
+const siteOriginList = z.string().transform((value, context) => {
+  const origins: string[] = [];
+  for (const entry of value.split(',')) {
+    if (entry.trim() === '') {
+      context.addIssue({ code: 'custom', message: 'an empty entry, such as a doubled or trailing comma' });
+      continue;
+    }
+    const result = siteOrigin.safeParse(entry);
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        context.addIssue({ code: 'custom', message: `${entry.trim()}: ${issue.message}` });
+      }
+      continue;
+    }
+    if (origins.includes(result.data)) {
+      context.addIssue({ code: 'custom', message: `${result.data} is listed twice` });
+      continue;
+    }
+    origins.push(result.data);
+  }
+  return origins;
+});
+
 /** Every setting the server reads, by the environment variable that carries it. */
 const environmentShape = z.object({
   LISTEN_BEE_URL: url,
@@ -99,7 +122,7 @@ const environmentShape = z.object({
   GSOC_IDENTIFIER: z.string().min(1),
   CHAT_TOPICS: topicList,
   CHAT_TOPIC_PATTERN: topicPattern,
-  CHAT_SITE_ORIGIN: siteOrigin,
+  CHAT_SITE_ORIGINS: siteOriginList,
   MAX_ACTIVE_CHATS: count(50),
   CHAT_IDLE_EVICT_MS: milliseconds(10 * MINUTE),
   RATE_WINDOW_MS: milliseconds(MINUTE),
@@ -165,8 +188,8 @@ export type Settings = {
   gsocKey: string;
   gsocIdentifier: string;
   allowedChats: { topics: ReadonlySet<string>; pattern: RegExp | undefined; maxActive: number };
-  /** The one site whose Swarm ID bindings this server accepts. */
-  siteOrigin: string;
+  /** The sites whose Swarm ID bindings this server accepts, each a bare origin. */
+  siteOrigins: readonly string[];
   rates: { windowMs: number; perChat: number; perSender: number };
   chatIdleEvictMs: number;
   queueLimit: number;
@@ -225,7 +248,7 @@ export function parseSettings(environment: Record<string, string | undefined>): 
       pattern: env.CHAT_TOPIC_PATTERN,
       maxActive: env.MAX_ACTIVE_CHATS,
     },
-    siteOrigin: env.CHAT_SITE_ORIGIN,
+    siteOrigins: env.CHAT_SITE_ORIGINS,
     rates: { windowMs: env.RATE_WINDOW_MS, perChat: env.RATE_PER_CHAT, perSender: env.RATE_PER_SENDER },
     chatIdleEvictMs: env.CHAT_IDLE_EVICT_MS,
     queueLimit: env.QUEUE_LIMIT,

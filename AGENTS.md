@@ -5,7 +5,7 @@ Read by AI coding agents and by people working in this repository. `CLAUDE.md` i
 
 ## What this is
 
-The chat server for the swarm-chat-js 9 client library. It listens on one GSOC inbox, checks each chat message, and
+The chat server for the swarm-chat-js 10 client library. It listens on one GSOC inbox, checks each chat message, and
 publishes the accepted ones into each chat's Swarm feed, one slot per message, with a history file
 beside it. The README describes the behaviour, the feed entry, the history file and every setting.
 
@@ -15,9 +15,10 @@ The message, its signed bytes, its checks and its caps belong to the library's m
 `@solarpunkltd/swarm-chat-js/message`. This server imports it and keeps no copy. A change to the
 message format is made in the library first.
 
-The server serves the chats of one site. `CHAT_SITE_ORIGIN` is required and is always passed to the library as
-`origin`, so a Swarm ID binding signed for any other site is refused. Never make it optional, because without it a
-sender signed in on one site could carry that identity into another site's chats.
+The server serves the chats of the sites listed in `CHAT_SITE_ORIGINS`, such as a domain and a copy of the viewer on
+Swarm. The list is required and is always passed to the library as `origins`, so a Swarm ID binding signed for any
+site not listed is refused. Never make it optional, because without it a sender signed in on one site could carry that
+identity into another site's chats.
 
 ## Branches
 

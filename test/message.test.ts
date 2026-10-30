@@ -14,6 +14,8 @@ import {
 } from './helpers/bindings.js';
 import { Rig, message, waitFor } from './helpers/harness.js';
 
+const UNLISTED_SITE = 'https://unlisted.example';
+
 let rig: Rig;
 
 beforeEach(async () => {
@@ -114,32 +116,47 @@ describe('message version 9', () => {
 });
 
 describe('the site origin', () => {
-  test('accepts a binding for the site CHAT_SITE_ORIGIN names', async () => {
-    const server = await rig.startServer({ CHAT_SITE_ORIGIN: BOUND_SITE });
+  test('accepts a binding for the site CHAT_SITE_ORIGINS names', async () => {
+    const server = await rig.startServer({ CHAT_SITE_ORIGINS: BOUND_SITE });
     const sent = boundMessage();
     await rig.send(sent);
     await waitFor(() => server.stats.published === 1, 5000, 'published');
     expect(rig.entry(0)?.msg).toStrictEqual(sent.message);
   });
 
-  test('refuses a valid binding for another site as binding', async () => {
-    const server = await rig.startServer({ CHAT_SITE_ORIGIN: BOUND_SITE });
+  test('accepts a binding for the second site CHAT_SITE_ORIGINS names', async () => {
+    const server = await rig.startServer({ CHAT_SITE_ORIGINS: `${BOUND_SITE},${OTHER_SITE}` });
+    const sent = message({ idb: OTHER_SITE_BINDING }, chatKeyFor(OTHER_SITE));
+    await rig.send(sent);
+    await waitFor(() => server.stats.published === 1, 5000, 'published');
+    expect(rig.entry(0)?.msg).toStrictEqual(sent.message);
+  });
+
+  test('refuses a binding for a site CHAT_SITE_ORIGINS does not list, however many it lists', async () => {
+    const server = await rig.startServer({ CHAT_SITE_ORIGINS: `${BOUND_SITE},${UNLISTED_SITE}` });
     await rig.send(message({ idb: OTHER_SITE_BINDING }, chatKeyFor(OTHER_SITE)));
     await waitFor(() => server.stats.dropped.get('binding') === 1, 5000, 'the refusal');
     expect(rig.entry(0)).toBeUndefined();
-    expect(rig.logs.some((line) => line.includes(`not ${BOUND_SITE}`))).toBe(true);
   });
 
-  test('accepts a binding for a local development site only when CHAT_SITE_ORIGIN names it', async () => {
+  test('refuses a valid binding for another site as binding', async () => {
+    const server = await rig.startServer({ CHAT_SITE_ORIGINS: BOUND_SITE });
+    await rig.send(message({ idb: OTHER_SITE_BINDING }, chatKeyFor(OTHER_SITE)));
+    await waitFor(() => server.stats.dropped.get('binding') === 1, 5000, 'the refusal');
+    expect(rig.entry(0)).toBeUndefined();
+    expect(rig.logs.some((line) => line.includes(`not for ${BOUND_SITE}`))).toBe(true);
+  });
+
+  test('accepts a binding for a local development site only when CHAT_SITE_ORIGINS names it', async () => {
     const local = message({ idb: LOCAL_SITE_BINDING }, chatKeyFor(LOCAL_SITE));
-    const server = await rig.startServer({ CHAT_SITE_ORIGIN: LOCAL_SITE });
+    const server = await rig.startServer({ CHAT_SITE_ORIGINS: LOCAL_SITE });
     await rig.send(local);
     await waitFor(() => server.stats.published === 1, 5000, 'published');
     expect(rig.entry(0)?.msg).toStrictEqual(local.message);
   });
 
   test('refuses a binding for a local development site in a chat served for a public site', async () => {
-    const server = await rig.startServer({ CHAT_SITE_ORIGIN: BOUND_SITE });
+    const server = await rig.startServer({ CHAT_SITE_ORIGINS: BOUND_SITE });
     await rig.send(message({ idb: LOCAL_SITE_BINDING }, chatKeyFor(LOCAL_SITE)));
     await waitFor(() => server.stats.dropped.get('binding') === 1, 5000, 'the refusal');
     expect(rig.entry(0)).toBeUndefined();

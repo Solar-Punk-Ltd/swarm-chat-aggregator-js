@@ -32,7 +32,7 @@ function environment(s, checkpointDir) {
     GSOC_KEY: s.gsocKey,
     GSOC_IDENTIFIER: s.gsocIdentifier,
     CHAT_TOPIC_PATTERN: s.chatTopicPattern,
-    CHAT_SITE_ORIGIN: SITE_ORIGIN,
+    CHAT_SITE_ORIGINS: SITE_ORIGIN,
     HEALTH_PORT: String(s.port),
     HEARTBEAT_INTERVAL_MS: '2000',
     HEARTBEAT_STALE_MS: '10000',

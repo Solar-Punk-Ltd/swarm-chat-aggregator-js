@@ -68,7 +68,7 @@ test('B1 load: where a burst of 200 messages spends its time', { timeout: 30 * 6
   rig.writer.faults.push = PUSH;
   const server = await rig.startServer({
     CHAT_TOPICS: TOPIC,
-    CHAT_SITE_ORIGIN: 'https://chat.example.com',
+    CHAT_SITE_ORIGINS: 'https://chat.example.com',
     HEARTBEAT_BEE_URL: rig.writer.url,
     HEARTBEAT_INTERVAL_MS: String(2000 * SCALE),
     HEARTBEAT_STALE_MS: String(600_000),
