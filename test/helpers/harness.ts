@@ -91,7 +91,7 @@ export class Rig {
       GSOC_IDENTIFIER: this.gsocIdentifier,
       CHAT_TOPICS: CHAT,
       CHAT_TOPIC_PATTERN: 'chat-pattern-.*',
-      CHAT_SITE_ORIGIN: BOUND_SITE,
+      CHAT_SITE_ORIGINS: BOUND_SITE,
       RATE_WINDOW_MS: '60000',
       RATE_PER_CHAT: '1000',
       RATE_PER_SENDER: '1000',

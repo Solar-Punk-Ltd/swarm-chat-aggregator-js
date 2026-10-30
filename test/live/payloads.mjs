@@ -13,7 +13,7 @@ export const SITE_ORIGIN = 'https://chat.example.com';
 
 /** The library's own wire check as the bed's server runs it, for the bed's tests. */
 export function parsePayload(bytes) {
-  return parseChatMessage(bytes, { origin: SITE_ORIGIN });
+  return parseChatMessage(bytes, { origins: [SITE_ORIGIN] });
 }
 
 const encoder = new TextEncoder();

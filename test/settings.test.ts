@@ -15,7 +15,7 @@ const valid = () => ({
   GSOC_KEY: testKey(),
   GSOC_IDENTIFIER: 'chat-inbox',
   CHAT_TOPICS: 'chat-a, chat-b',
-  CHAT_SITE_ORIGIN: 'https://chat.example.com',
+  CHAT_SITE_ORIGINS: 'https://chat.example.com',
 });
 
 function problemsOf(environment: Record<string, string | undefined>): string[] {
@@ -64,28 +64,37 @@ describe('settings', () => {
   });
 });
 
-describe('CHAT_SITE_ORIGIN', () => {
-  test('is required, since a binding for any other site must be refused', () => {
-    expect(problemsOf({ ...valid(), CHAT_SITE_ORIGIN: undefined })[0]).toMatch(/^CHAT_SITE_ORIGIN/);
+describe('CHAT_SITE_ORIGINS', () => {
+  test('is required, since a binding for any site not listed must be refused', () => {
+    expect(problemsOf({ ...valid(), CHAT_SITE_ORIGINS: undefined })[0]).toMatch(/^CHAT_SITE_ORIGINS/);
   });
 
-  test('reads a site origin, without a trailing slash and in lowercase', () => {
-    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGIN: ' https://Chat.Example.com/ ' }).siteOrigin).toBe(
+  test('reads each site origin, without a trailing slash and in lowercase', () => {
+    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGINS: ' https://Chat.Example.com/ ' }).siteOrigins).toEqual([
       'https://chat.example.com',
-    );
-    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGIN: 'https://chat.example.com:8443' }).siteOrigin).toBe(
+    ]);
+    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGINS: 'https://chat.example.com:8443' }).siteOrigins).toEqual([
       'https://chat.example.com:8443',
-    );
-    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGIN: 'http://localhost:5173' }).siteOrigin).toBe(
+    ]);
+    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGINS: 'http://localhost:5173' }).siteOrigins).toEqual([
       'http://localhost:5173',
-    );
-    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGIN: 'http://[::1]:5173' }).siteOrigin).toBe('http://[::1]:5173');
-    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGIN: 'https://bücher.example' }).siteOrigin).toBe(
+    ]);
+    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGINS: 'http://[::1]:5173' }).siteOrigins).toEqual([
+      'http://[::1]:5173',
+    ]);
+    expect(parseSettings({ ...valid(), CHAT_SITE_ORIGINS: 'https://bücher.example' }).siteOrigins).toEqual([
       'https://xn--bcher-kva.example',
-    );
+    ]);
   });
 
-  test('refuses anything that is not a bare origin a binding could name', () => {
+  test('reads a comma list of sites in its own order', () => {
+    expect(
+      parseSettings({ ...valid(), CHAT_SITE_ORIGINS: 'https://chat.example.com, https://Viewer.Example.eth.limo/' })
+        .siteOrigins,
+    ).toEqual(['https://chat.example.com', 'https://viewer.example.eth.limo']);
+  });
+
+  test('refuses anything that is not a bare origin a binding could name, wherever it sits in the list', () => {
     for (const value of [
       'chat.example.com',
       'https://chat.example.com/watch',
@@ -98,8 +107,28 @@ describe('CHAT_SITE_ORIGIN', () => {
       'https://[::1]',
       'https://[2001:db8::1]:8443',
     ]) {
-      expect(problemsOf({ ...valid(), CHAT_SITE_ORIGIN: value })[0], value).toMatch(/^CHAT_SITE_ORIGIN/);
+      expect(problemsOf({ ...valid(), CHAT_SITE_ORIGINS: value })[0], value).toMatch(/^CHAT_SITE_ORIGINS/);
+      expect(problemsOf({ ...valid(), CHAT_SITE_ORIGINS: `https://ok.example.com,${value}` })[0], value).toMatch(
+        /^CHAT_SITE_ORIGINS/,
+      );
     }
+  });
+
+  test('refuses an empty entry', () => {
+    for (const value of [
+      ',',
+      'https://chat.example.com,',
+      ',https://chat.example.com',
+      'https://a.example, ,https://b.example',
+    ]) {
+      expect(problemsOf({ ...valid(), CHAT_SITE_ORIGINS: value })[0], value).toMatch(/^CHAT_SITE_ORIGINS: .*empty/);
+    }
+  });
+
+  test('refuses a site listed twice, compared as origins', () => {
+    expect(
+      problemsOf({ ...valid(), CHAT_SITE_ORIGINS: 'https://chat.example.com, https://Chat.Example.com/' })[0],
+    ).toMatch(/^CHAT_SITE_ORIGINS: .*https:\/\/chat\.example\.com.*twice/);
   });
 });
 
